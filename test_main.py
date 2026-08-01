@@ -17,6 +17,31 @@ class SkipSizeChartTests(unittest.TestCase):
         self.assertTrue(args.skip_size_chart)
 
 
+class StartPageTests(unittest.TestCase):
+    def test_start_page_url_is_recognized(self) -> None:
+        self.assertTrue(
+            main._is_start_page_url(
+                "https://stark.dewu.com/vueProduct/newProductApply/start?noLayout=1"
+            )
+        )
+        self.assertFalse(
+            main._is_start_page_url(
+                "https://stark.dewu.com/vueProduct/newProductApply/spuEdit/operation/106"
+            )
+        )
+
+    def test_non_empty_start_page_state_is_rejected(self) -> None:
+        with self.assertRaises(main.AutomationError):
+            main._validate_start_page_state(
+                {"商品品牌": "pcgocollection", "商品类目": "", "适用人群": "", "商品链接": ""},
+                image_count=0,
+            )
+
+    def test_start_category_value_matches_cascader_path(self) -> None:
+        self.assertTrue(main._start_category_value_matches("服装>>上衣>>卫衣"))
+        self.assertFalse(main._start_category_value_matches("服装>>上衣>>夹克"))
+
+
 class _FakeRect:
     def __init__(self, width: int, height: int) -> None:
         self.size = (width, height)

@@ -65,6 +65,10 @@ ATTRIBUTE_OVERRIDES: Mapping[str, tuple[str, ...]] = {}
 
 # 页面和媒体上传限制集中定义，预检与实际上传共用这些规则，避免前后判断不一致。
 TARGET_HOST = "stark.dewu.com"
+START_PATH_FRAGMENT = "/vueProduct/newProductApply/start"
+START_PAGE_URL = f"https://{TARGET_HOST}{START_PATH_FRAGMENT}?noLayout=1"
+START_CATEGORY_PATH = ("服装", "上衣", "卫衣")
+START_AUDIENCE = "通用"
 TARGET_PATH_FRAGMENT = "/vueProduct/newProductApply/spuEdit/operation/"
 MAX_CAROUSEL_PER_COLOR = 5
 MAX_PRODUCT_DISPLAY_IMAGES = 20
@@ -1711,6 +1715,37 @@ def _effective_warnings(
             "若当前类目强制要求，请先在 main.py 顶部补充真实值"
         )
     return warnings
+
+
+def _is_start_page_url(url: str) -> bool:
+    # 起始页和详情页共用同一个商家域名，必须同时校验域名和路径片段。
+    parsed = urlparse(str(url))
+    return parsed.hostname == TARGET_HOST and START_PATH_FRAGMENT in parsed.path
+
+
+def _validate_start_page_state(fields: Mapping[str, str], image_count: int) -> None:
+    # 起始页只能从空白状态开始，任何残留值都不自动覆盖或删除。
+    residual = [
+        f"{label}={str(value).strip()}"
+        for label, value in fields.items()
+        if str(value or "").strip()
+    ]
+    if image_count != 0:
+        residual.append(f"商品图片={image_count}张")
+    if residual:
+        raise AutomationError(
+            "申请新品起始页不是空白页，程序不会覆盖已有内容：" + "；".join(residual)
+        )
+
+
+def _start_category_value_matches(value: str) -> bool:
+    # Element Cascader 的回显使用“>>”，部分页面版本会使用斜杠或插入空白。
+    parts = tuple(
+        part.strip()
+        for part in re.split(r"\s*(?:>>|/|／)\s*", str(value).strip())
+        if part.strip()
+    )
+    return parts == START_CATEGORY_PATH
 
 
 def _is_displayed(element: Any) -> bool:

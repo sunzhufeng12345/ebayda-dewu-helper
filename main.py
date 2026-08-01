@@ -113,6 +113,174 @@ class RunResult:
     page_url: str = ""
 
 
+class DewuStartPage:
+    # 起始页使用 Element UI 表单结构，与详情页的 main 内容区定位逻辑分开维护。
+    def __init__(
+        self,
+        browser: Any,
+        tab: Any,
+        media: MediaFiles,
+        settings: RunSettings,
+        result: RunResult,
+    ) -> None:
+        self.browser = browser
+        self.tab = tab
+        self.media = media
+        self.settings = settings
+        self.result = result
+
+    def run(self) -> Any:
+        # 当前阶段只完成起始页的表单选择；上传和创建跳转在后续阶段接入。
+        self._verify_blank()
+        self._select_brand()
+        self._select_category()
+        self._select_audience()
+        return self.tab
+
+    def _verify_blank(self) -> None:
+        fields = {
+            label: _element_value(self._start_input(label))
+            for label in ("商品品牌", "商品类目", "适用人群", "商品链接")
+        }
+        image_count = len(self._start_image_items())
+        _validate_start_page_state(fields, image_count)
+
+    def _select_brand(self) -> None:
+        input_element = self._start_input("商品品牌")
+        self._click(input_element)
+        option = self._wait_until(
+            self._first_visible_select_option,
+            message="商品品牌下拉框没有可选项",
+        )
+        self._click(option)
+        self._wait_until(
+            lambda: bool(_element_value(self._start_input("商品品牌"))),
+            message="商品品牌没有回显",
+        )
+
+    def _select_category(self) -> None:
+        input_element = self._start_input("商品类目")
+        self._click(input_element)
+        for value in START_CATEGORY_PATH:
+            option = self._wait_until(
+                lambda value=value: self._wait_for_cascader_option(value),
+                message=f"商品类目没有找到：{value}",
+            )
+            self._click(option)
+        self._wait_until(
+            lambda: _start_category_value_matches(
+                _element_value(self._start_input("商品类目"))
+            ),
+            message="商品类目没有回显完整路径：服装>>上衣>>卫衣",
+        )
+
+    def _select_audience(self) -> None:
+        input_element = self._start_input("适用人群")
+        self._click(input_element)
+        option = self._wait_until(
+            lambda: self._wait_for_select_option(START_AUDIENCE),
+            message="适用人群没有找到：通用",
+        )
+        self._click(option)
+        self._wait_until(
+            lambda: _element_value(self._start_input("适用人群")) == START_AUDIENCE,
+            message="适用人群没有回显：通用",
+        )
+
+    def _start_form_item(self, label: str) -> Any:
+        literal = _xpath_literal(label)
+        items = self._visible_elements(
+            "//form//*[contains(concat(' ',normalize-space(@class),' '),' el-form-item ')]"
+            f"[.//label[normalize-space(.)={literal}]]"
+        )
+        if len(items) != 1:
+            raise AutomationError(f"起始页字段“{label}”数量异常：{len(items)}")
+        return items[0]
+
+    def _start_input(self, label: str) -> Any:
+        form_item = self._start_form_item(label)
+        inputs = [
+            item
+            for item in form_item.eles(
+                "xpath:.//input[not(@type='file') and not(@disabled)] | "
+                ".//textarea[not(@disabled)]"
+            )
+            if _is_displayed(item)
+        ]
+        if not inputs:
+            raise AutomationError(f"起始页字段“{label}”没有输入框")
+        return inputs[0]
+
+    def _start_image_items(self) -> list[Any]:
+        form_item = self._start_form_item("商品图片")
+        return self._visible_elements(
+            ".//ul[contains(@class,'el-upload-list')]//li",
+            scope=form_item,
+        )
+
+    def _first_visible_select_option(self) -> Any | None:
+        options = self._visible_elements(
+            "//body//li[contains(@class,'el-select-dropdown__item')]"
+        )
+        return next((_item for _item in options if _has_layout(_item)), None)
+
+    def _wait_for_select_option(self, value: str) -> Any | None:
+        literal = _xpath_literal(value)
+        options = self._visible_elements(
+            "//body//li[contains(@class,'el-select-dropdown__item')]"
+            f"[normalize-space(.)={literal}]"
+        )
+        return next((_item for _item in options if _has_layout(_item)), None)
+
+    def _wait_for_cascader_option(self, value: str) -> Any | None:
+        literal = _xpath_literal(value)
+        options = self._visible_elements(
+            "//body//li[contains(@class,'el-cascader-node')]"
+            f"[normalize-space(.)={literal}]"
+        )
+        return next((_item for _item in options if _has_layout(_item)), None)
+
+    def _visible_elements(self, xpath: str, *, scope: Any | None = None) -> list[Any]:
+        locator = xpath if xpath.startswith("xpath:") else f"xpath:{xpath}"
+        owner = scope or self.tab
+        try:
+            elements = owner.eles(locator, timeout=1)
+        except TypeError:
+            elements = owner.eles(locator)
+        return [element for element in elements if _is_displayed(element)]
+
+    def _click(self, element: Any) -> None:
+        self._scroll(element)
+        element.click(timeout=self.settings.timeout)
+
+    def _scroll(self, element: Any) -> None:
+        try:
+            element.scroll.to_see(center=True)
+        except Exception:
+            pass
+
+    def _wait_until(
+        self,
+        predicate: Callable[[], Any],
+        *,
+        timeout: float | None = None,
+        message: str = "等待页面状态变化超时",
+    ) -> Any:
+        deadline = time.monotonic() + (timeout or self.settings.timeout)
+        last_error: Exception | None = None
+        while time.monotonic() < deadline:
+            try:
+                value = predicate()
+                if value:
+                    return value
+            except Exception as error:
+                last_error = error
+            time.sleep(0.15)
+        if last_error:
+            raise AutomationError(f"{message}：{last_error}") from last_error
+        raise AutomationError(message)
+
+
 def parse_args() -> argparse.Namespace:
     # 命令行只负责收集参数；文件存在性和数值范围在主流程中统一校验。
     parser = argparse.ArgumentParser(
@@ -1752,6 +1920,15 @@ def _is_displayed(element: Any) -> bool:
     # DrissionPage 元素状态读取可能因节点失效而抛异常；失效节点按不可见处理。
     try:
         return bool(element and element.states.is_displayed)
+    except Exception:
+        return False
+
+
+def _has_layout(element: Any) -> bool:
+    # 下拉框会保留 display:none 的模板节点，只有有实际尺寸的节点才可点击。
+    try:
+        width, height = element.rect.size
+        return width > 0 and height > 0
     except Exception:
         return False
 

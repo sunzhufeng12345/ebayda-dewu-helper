@@ -41,6 +41,77 @@ class StartPageTests(unittest.TestCase):
         self.assertTrue(main._start_category_value_matches("服装>>上衣>>卫衣"))
         self.assertFalse(main._start_category_value_matches("服装>>上衣>>夹克"))
 
+    def test_brand_selection_clicks_first_visible_option(self) -> None:
+        brand_input = _FocusRequiredInput()
+        options = [
+            SimpleNamespace(
+                text="第一个品牌",
+                states=SimpleNamespace(is_displayed=True),
+                rect=_FakeRect(120, 34),
+            ),
+            SimpleNamespace(
+                text="第二个品牌",
+                states=SimpleNamespace(is_displayed=True),
+                rect=_FakeRect(120, 34),
+            ),
+        ]
+        clicked: list[object] = []
+        automation = object.__new__(main.DewuStartPage)
+        automation.settings = SimpleNamespace(timeout=1)
+        automation._start_input = lambda _label: brand_input
+        automation._visible_elements = lambda _xpath, **_kwargs: options
+
+        def click(element: object) -> None:
+            clicked.append(element)
+            if element is options[0]:
+                brand_input.value = options[0].text
+
+        automation._click = click
+        automation._wait_until = lambda predicate, **_kwargs: predicate()
+
+        automation._select_brand()
+
+        self.assertEqual(clicked, [brand_input, options[0]])
+        self.assertEqual(brand_input.value, "第一个品牌")
+
+    def test_category_selection_clicks_each_level_in_order(self) -> None:
+        category_input = _FocusRequiredInput()
+        options = {
+            value: SimpleNamespace(
+                text=value,
+                states=SimpleNamespace(is_displayed=True),
+                rect=_FakeRect(120, 34),
+            )
+            for value in main.START_CATEGORY_PATH
+        }
+        clicked: list[object] = []
+        automation = object.__new__(main.DewuStartPage)
+        automation.settings = SimpleNamespace(timeout=1)
+        automation._start_input = lambda _label: category_input
+        automation._wait_for_cascader_option = lambda value: options[value]
+        automation._wait_until = lambda predicate, **_kwargs: predicate()
+
+        def click(element: object) -> None:
+            clicked.append(element)
+            if element in options.values():
+                selected = element.text
+                index = main.START_CATEGORY_PATH.index(selected) + 1
+                category_input.value = ">>".join(main.START_CATEGORY_PATH[:index])
+
+        automation._click = click
+
+        automation._select_category()
+
+        self.assertEqual(
+            clicked[0],
+            category_input,
+        )
+        self.assertEqual(
+            [element.text for element in clicked[1:]],
+            list(main.START_CATEGORY_PATH),
+        )
+        self.assertEqual(category_input.value, "服装>>上衣>>卫衣")
+
 
 class _FakeRect:
     def __init__(self, width: int, height: int) -> None:

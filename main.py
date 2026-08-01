@@ -60,6 +60,9 @@ SIZE_CHART: Mapping[str, Mapping[str, str]] = {
     "3XL": {"1/2胸围(cm)": "63", "衣长(cm)": "76", "袖长(cm)": "65"},
 }
 
+# 新建申请的尺码弹窗会先自动放入这组空测量的默认尺码；它不是来源商品数据。
+DEFAULT_SIZE_SCAFFOLD = ("XS", "S", "M", "L", "XL", "2XL")
+
 # 这里的值只覆盖本次运行内存中的来源属性，不会回写或修改原始 JSON 文件。
 ATTRIBUTE_OVERRIDES: Mapping[str, tuple[str, ...]] = {}
 
@@ -141,20 +144,52 @@ class DewuStartPage:
         self._select_brand()
         self._select_category()
         self._select_audience()
-        self._verify_blank()
+        self._verify_dependent_fields_blank()
         self._upload_first_square()
         self._verify_external_link_blank()
         return self._create_application()
 
     def _verify_blank(self) -> None:
-        fields = {
-            label: _element_value(self._start_input(label))
-            for label in ("商品品牌", "商品类目", "适用人群")
-        }
-        external_link = self._start_input("商品链接", required=False)
-        if external_link is not None:
-            fields["商品链接"] = _element_value(external_link)
-        image_count = len(self._start_image_items())
+        def read_state() -> tuple[dict[str, str], int] | None:
+            fields: dict[str, str] = {}
+            for label in ("商品品牌", "适用人群"):
+                input_element = self._start_input(label, required=False)
+                if input_element is None:
+                    return None
+                fields[label] = _element_value(input_element)
+
+            category_input = self._start_input(
+                "商品类目",
+                required=False,
+                allow_disabled=True,
+            )
+            if category_input is not None:
+                fields["商品类目"] = _element_value(category_input)
+            external_link = self._start_input("商品链接", required=False)
+            if external_link is not None:
+                fields["商品链接"] = _element_value(external_link)
+            return fields, len(self._start_image_items())
+
+        fields, image_count = self._wait_until(
+            read_state,
+            message="申请新品起始页基础字段尚未加载完成",
+        )
+        _validate_start_page_state(fields, image_count)
+
+    def _verify_dependent_fields_blank(self) -> None:
+        def read_state() -> tuple[dict[str, str], int] | None:
+            external_link = self._start_input("商品链接", required=False)
+            image_form = self._start_form_item("商品图片", required=False)
+            if external_link is None or image_form is None:
+                return None
+            return {"商品链接": _element_value(external_link)}, len(
+                self._start_image_items()
+            )
+
+        fields, image_count = self._wait_until(
+            read_state,
+            message="申请新品图片和商品链接字段尚未加载完成",
+        )
         _validate_start_page_state(fields, image_count)
 
     def _select_brand(self) -> None:
@@ -171,7 +206,10 @@ class DewuStartPage:
         )
 
     def _select_category(self) -> None:
-        input_element = self._start_input("商品类目")
+        input_element = self._wait_until(
+            lambda: self._start_input("商品类目", required=False),
+            message="商品类目输入框尚未准备好",
+        )
         self._click(input_element)
         for value in START_CATEGORY_PATH:
             option = self._wait_until(
@@ -266,16 +304,25 @@ class DewuStartPage:
             raise AutomationError(f"起始页字段“{label}”数量异常：{len(items)}")
         return items[0]
 
-    def _start_input(self, label: str, *, required: bool = True) -> Any | None:
+    def _start_input(
+        self,
+        label: str,
+        *,
+        required: bool = True,
+        allow_disabled: bool = False,
+    ) -> Any | None:
         form_item = self._start_form_item(label, required=required)
         if form_item is None:
             return None
+        input_locator = (
+            "xpath:.//input[not(@type='file')] | .//textarea"
+            if allow_disabled
+            else "xpath:.//input[not(@type='file') and not(@disabled)] | "
+            ".//textarea[not(@disabled)]"
+        )
         inputs = [
             item
-            for item in form_item.eles(
-                "xpath:.//input[not(@type='file') and not(@disabled)] | "
-                ".//textarea[not(@disabled)]"
-            )
+            for item in form_item.eles(input_locator)
             if _is_displayed(item)
         ]
         if not inputs:
@@ -443,10 +490,11 @@ class DewuAutomation:
         if self.settings.skip_size_chart:
             self._skip_size_chart()
 
+        self._fill_basic_fields()
+        # 适用人群会触发结构化标题区域重绘，因此标题必须在基础字段稳定后填写。
         self._fill_title()
         self.result.completed_sections.append("title")
 
-        self._fill_basic_fields()
         self._fill_attributes()
         self.result.completed_sections.append("basic_info")
 
@@ -651,7 +699,7 @@ class DewuAutomation:
 
         # 先调整行数，再读取表头和已有内容；已有非空尺码与来源冲突时不覆盖。
         table = self._size_table(modal)
-        self._ensure_size_rows(table, len(self.product.sizes))
+        self._ensure_size_rows(table, self.product.sizes)
         rows = self._size_rows(table)
         if len(rows) != len(self.product.sizes):
             raise AutomationError(
@@ -1047,7 +1095,13 @@ class DewuAutomation:
         ]
         if not inputs:
             raise AutomationError(f"字段“{label}”没有可输入控件")
-        inputs[-1].input(str(value), clear=True)
+        target_input = inputs[-1]
+        self._input_value(target_input, str(value))
+        expected = str(value).strip()
+        self._wait_until(
+            lambda: _element_value(target_input) == expected,
+            message=f"字段“{label}”回显失败",
+        )
 
     def _choose_form_value(self, label: str, values: Sequence[str], *, required: bool) -> None:
         # 兼容单选标签、多选标签和下拉输入三种页面控件形态。
@@ -1080,7 +1134,11 @@ class DewuAutomation:
                     raise AutomationError(f"字段“{label}”没有可选择控件")
                 self.result.warnings.append(f"页面没有可填写的可选字段：{label}")
                 return
-            if not self._select_from_input(inputs[-1], value, required=required):
+            select_input = next(
+                (item for item in inputs if item.attr("readonly") is None),
+                inputs[-1],
+            )
+            if not self._select_from_input(select_input, value, required=required):
                 continue
             self._wait_until(
                 lambda: self._form_item_has_value(self._form_item(label), value),
@@ -1140,6 +1198,10 @@ class DewuAutomation:
             lambda: self._input_has_value(input_element, value),
             message=f"下拉框没有回显：{value}",
         )
+        # Element UI 多选下拉选中后默认不收起，关闭它以免遮挡下一个字段并串用选项层。
+        from DrissionPage.common import Keys
+
+        input_element.input(Keys.ESCAPE, clear=False)
         return True
 
     def _form_item_has_value(self, form_item: Any, value: str) -> bool:
@@ -1223,7 +1285,7 @@ class DewuAutomation:
         literal = _xpath_literal(label)
         xpath = (
             "//main//*[contains(concat(' ',normalize-space(@class),' '),' el-form-item ')]"
-            f"[./label[normalize-space(.)={literal}] or .//label[normalize-space(.)={literal}]][1]"
+            f"[.//*[normalize-space(.)={literal}]][1]"
         )
         return self._find_visible(xpath, f"表单字段：{label}")
 
@@ -1452,15 +1514,78 @@ class DewuAutomation:
             if _is_size_data_row(row)
         ]
 
-    def _ensure_size_rows(self, table: Any, expected: int) -> None:
-        # 只能新增缺少的空行；如果现有行超过来源数量，不自动删除，避免破坏人工数据。
+    def _ensure_size_rows(self, table: Any, expected_sizes: Sequence[str]) -> None:
+        # 新建页的默认尺码行可安全按来源重排；其他含内容的行仍然不自动删除。
+        expected_sizes = tuple(str(size).strip() for size in expected_sizes)
+        expected = len(expected_sizes)
+        expected_set = set(expected_sizes)
+
+        def row_inputs(row: Any) -> list[Any]:
+            return [
+                item
+                for item in row.eles("xpath:.//input")
+                if _is_displayed(item)
+            ]
+
+        def row_size(row: Any) -> str:
+            inputs = row_inputs(row)
+            return _element_value(inputs[0]) if inputs else ""
+
+        rows = self._size_rows(table)
+        default_scaffold = (
+            tuple(row_size(row) for row in rows) == DEFAULT_SIZE_SCAFFOLD
+            and all(
+                not any(_element_value(item) for item in row_inputs(row)[1:])
+                for row in rows
+            )
+            and len(rows) > expected
+        )
+
         while True:
             rows = self._size_rows(table)
-            if len(rows) > expected:
-                raise AutomationError(
-                    f"尺码表已有 {len(rows)} 行，超过来源 {expected} 行；"
-                    "请手工删除多余尺码后重试"
+            extra_row = None
+            if default_scaffold:
+                extra_rows = [
+                    row for row in rows if row_size(row) not in expected_set
+                ]
+                if extra_rows:
+                    extra_row = extra_rows[0]
+                else:
+                    default_scaffold = False
+            if extra_row is None and len(rows) > expected:
+                extra_row = rows[-1]
+
+            if extra_row is not None:
+                extra_inputs = row_inputs(extra_row)
+                if not default_scaffold and any(
+                    _element_value(item) for item in extra_inputs
+                ):
+                    raise AutomationError(
+                        f"尺码表已有 {len(rows)} 行，且末尾多余行包含内容；"
+                        "程序不会删除已有尺码，请手工清理后重试"
+                    )
+                delete_controls = self._visible_elements(
+                    ".//*[contains(@class,'minus-circle') or @alt='minus-circle' "
+                    "or @aria-label='minus-circle']",
+                    scope=extra_row,
                 )
+                if not delete_controls:
+                    raise AutomationError(
+                        f"尺码表已有 {len(rows)} 行，找不到末尾多余行的删除按钮；"
+                        "请手工清理后重试"
+                    )
+                before = len(rows)
+                self._click(delete_controls[-1])
+                self._wait_until(
+                    lambda: len(self._size_rows(table)) == before - 1,
+                    message="等待删除多余尺码行完成超时",
+                )
+                if default_scaffold and not any(
+                    row_size(row) not in expected_set
+                    for row in self._size_rows(table)
+                ):
+                    default_scaffold = False
+                continue
             if len(rows) >= expected:
                 return
             if not rows:

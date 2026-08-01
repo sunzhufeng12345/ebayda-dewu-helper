@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 import unittest
 from decimal import Decimal
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -111,6 +112,56 @@ class StartPageTests(unittest.TestCase):
             list(main.START_CATEGORY_PATH),
         )
         self.assertEqual(category_input.value, "服装>>上衣>>卫衣")
+
+    def test_first_square_upload_uses_first_file(self) -> None:
+        class FakeUploadInput:
+            def __init__(self) -> None:
+                self.uploaded: object | None = None
+
+            def input(self, value: object) -> None:
+                self.uploaded = value
+
+        upload_input = FakeUploadInput()
+        first_square = Path("first-square.jpg").resolve()
+        automation = object.__new__(main.DewuStartPage)
+        automation.media = SimpleNamespace(first_square=(first_square,))
+        automation.settings = SimpleNamespace(upload_timeout=1)
+        automation.result = SimpleNamespace(uploaded_counts={"start_image": 0})
+        automation._start_file_input = lambda: upload_input
+        automation._wait_until = lambda _predicate, **_kwargs: True
+
+        with patch.object(Path, "is_file", return_value=True):
+            automation._upload_first_square()
+
+        self.assertEqual(upload_input.uploaded, str(first_square))
+
+    def test_created_detail_candidates_exclude_existing_detail_tabs(self) -> None:
+        existing = SimpleNamespace(
+            url="https://stark.dewu.com/vueProduct/newProductApply/spuEdit/operation/old"
+        )
+        created = SimpleNamespace(
+            url="https://stark.dewu.com/vueProduct/newProductApply/spuEdit/operation/new"
+        )
+
+        candidates = main._new_detail_tabs(
+            [existing, created],
+            {str(existing.url)},
+        )
+
+        self.assertEqual(candidates, [created])
+
+    def test_media_validation_requires_first_square(self) -> None:
+        product = SimpleNamespace(colors=())
+        media = SimpleNamespace(
+            first_square=(),
+            carousel_by_color={},
+            product_display_backs=(),
+            details=(),
+            outfit_fronts=(),
+        )
+
+        with self.assertRaises(main.ProductDataError):
+            main._validate_media_for_page(product, media)
 
 
 class _FakeRect:

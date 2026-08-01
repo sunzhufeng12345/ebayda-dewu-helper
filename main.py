@@ -106,7 +106,13 @@ class RunResult:
     validation_errors: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     uploaded_counts: dict[str, int] = field(
-        default_factory=lambda: {"carousel": 0, "product_display": 0, "detail": 0, "outfit": 0}
+        default_factory=lambda: {
+            "start_image": 0,
+            "carousel": 0,
+            "product_display": 0,
+            "detail": 0,
+            "outfit": 0,
+        }
     )
     sku_rows: int = 0
     submission: str = "not_attempted"
@@ -130,12 +136,14 @@ class DewuStartPage:
         self.result = result
 
     def run(self) -> Any:
-        # 当前阶段只完成起始页的表单选择；上传和创建跳转在后续阶段接入。
+        # 起始页完成后只负责创建申请并返回新的详情页，不保存草稿或提交审核。
         self._verify_blank()
         self._select_brand()
         self._select_category()
         self._select_audience()
-        return self.tab
+        self._upload_first_square()
+        self._verify_external_link_blank()
+        return self._create_application()
 
     def _verify_blank(self) -> None:
         fields = {
@@ -187,6 +195,61 @@ class DewuStartPage:
             message="适用人群没有回显：通用",
         )
 
+    def _upload_first_square(self) -> None:
+        if not self.media.first_square:
+            raise AutomationError("来源图片中没有第一张方图，无法创建新品申请")
+        image_path = self.media.first_square[0].expanduser().resolve()
+        if not image_path.is_file():
+            raise AutomationError(f"第一张方图文件不存在：{image_path}")
+
+        upload_input = self._start_file_input()
+        upload_input.input(str(image_path))
+        self._wait_until(
+            self._first_square_uploaded,
+            timeout=self.settings.upload_timeout,
+            message="等待第一张方图上传完成超时",
+        )
+        self.result.uploaded_counts["start_image"] = 1
+
+    def _verify_external_link_blank(self) -> None:
+        value = _element_value(self._start_input("商品链接"))
+        if value:
+            raise AutomationError(f"起始页商品链接不是空值：{value}")
+
+    def _create_application(self) -> Any:
+        before_urls = {
+            str(tab.url)
+            for tab in self.browser.get_tabs()
+            if _is_detail_page_url(str(tab.url))
+        }
+        button = self._find_visible(
+            "//button[normalize-space(.)='创建新品发布申请']",
+            "创建新品发布申请按钮",
+        )
+        self._click(button)
+
+        def locate_created_tab() -> Any | None:
+            candidates = _new_detail_tabs(self.browser.get_tabs(), before_urls)
+            if len(candidates) > 1:
+                raise AutomationError(
+                    f"创建新品申请后出现多个新详情页：{len(candidates)}"
+                )
+            return candidates[0] if candidates else None
+
+        detail_tab = self._wait_until(
+            locate_created_tab,
+            timeout=max(self.settings.timeout, 30),
+            message="创建新品发布申请后没有进入详情页",
+        )
+        try:
+            detail_tab.set.activate()
+        except Exception as error:
+            raise AutomationError("无法激活创建后的新品详情页") from error
+        self.tab = detail_tab
+        self.result.page_url = str(detail_tab.url)
+        self.result.completed_sections.append("new_product_start")
+        return detail_tab
+
     def _start_form_item(self, label: str) -> Any:
         literal = _xpath_literal(label)
         items = self._visible_elements(
@@ -218,6 +281,23 @@ class DewuStartPage:
             scope=form_item,
         )
 
+    def _start_file_input(self) -> Any:
+        form_item = self._start_form_item("商品图片")
+        inputs = form_item.eles("xpath:.//input[@type='file']")
+        if len(inputs) != 1:
+            raise AutomationError(f"起始页商品图片文件输入框数量异常：{len(inputs)}")
+        return inputs[0]
+
+    def _first_square_uploaded(self) -> bool:
+        items = self._start_image_items()
+        if len(items) != 1:
+            return False
+        item = items[0]
+        if "is-success" not in str(item.attr("class") or ""):
+            return False
+        images = item.eles("xpath:.//img")
+        return any(str(image.attr("src") or "").strip() for image in images)
+
     def _first_visible_select_option(self) -> Any | None:
         options = self._visible_elements(
             "//body//li[contains(@class,'el-select-dropdown__item')]"
@@ -239,6 +319,12 @@ class DewuStartPage:
             f"[normalize-space(.)={literal}]"
         )
         return next((_item for _item in options if _has_layout(_item)), None)
+
+    def _find_visible(self, xpath: str, description: str) -> Any:
+        elements = self._visible_elements(xpath)
+        if not elements:
+            raise AutomationError(f"找不到{description}")
+        return elements[0]
 
     def _visible_elements(self, xpath: str, *, scope: Any | None = None) -> list[Any]:
         locator = xpath if xpath.startswith("xpath:") else f"xpath:{xpath}"
@@ -1763,6 +1849,12 @@ def _validate_media_for_page(product: ProductData, media: MediaFiles) -> None:
     # models.py 只负责找到文件；这里按得物页面限制检查格式、数量和单文件大小。
     # 预先拒绝不合格文件可以避免上传到一半才发现页面限制。
     allowed_suffixes = {".jpg", ".jpeg", ".png"}
+    if not media.first_square:
+        raise ProductDataError("来源图片没有第一张方图，无法填写申请新品起始页")
+    first_square = media.first_square[0]
+    if first_square.suffix.casefold() not in allowed_suffixes:
+        raise ProductDataError(f"第一张方图格式不支持：{first_square}")
+
     for color in product.colors:
         files = media.carousel_by_color[color]
         if len(files) > MAX_CAROUSEL_PER_COLOR:
@@ -1889,6 +1981,20 @@ def _is_start_page_url(url: str) -> bool:
     # 起始页和详情页共用同一个商家域名，必须同时校验域名和路径片段。
     parsed = urlparse(str(url))
     return parsed.hostname == TARGET_HOST and START_PATH_FRAGMENT in parsed.path
+
+
+def _is_detail_page_url(url: str) -> bool:
+    parsed = urlparse(str(url))
+    return parsed.hostname == TARGET_HOST and TARGET_PATH_FRAGMENT in parsed.path
+
+
+def _new_detail_tabs(tabs: Sequence[Any], before_urls: set[str]) -> list[Any]:
+    # 创建申请后只接受此前不存在的新详情页，避免误用旧调试草稿。
+    return [
+        tab
+        for tab in tabs
+        if _is_detail_page_url(str(tab.url)) and str(tab.url) not in before_urls
+    ]
 
 
 def _validate_start_page_state(fields: Mapping[str, str], image_count: int) -> None:

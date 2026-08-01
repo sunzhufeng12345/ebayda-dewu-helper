@@ -1,0 +1,8 @@
+.venv/
+.dewu_work/
+.chrome-profile/
+__pycache__/
+*.py[cod]
+*.zip
+*.log
+.DS_Store

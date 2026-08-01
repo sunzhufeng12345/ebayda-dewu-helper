@@ -1,0 +1,1422 @@
+{
+    "code": 200,
+    "message": "success",
+    "data": {
+        "id": 1632,
+        "code": "ZB9603",
+        "articleNumber": "PB26XY01LJB-ZB9603",
+        "name": "  帕丁顿熊 春秋冬季潮流手写字体印花简约纯色基础款圆领套头外穿内搭打底衫美式复古高街cleanfit版型长袖百搭高颜值情侣款卫衣 男女同款",
+        "itemNumber": "PB26XY01LJB-ZB9603",
+        "supplierItemNumber": "A486-PB26XY01LJB-ZB9603",
+        "description": "",
+        "image": "products/ZB9603/first-square/图片下载 (2).jpg",
+        "supplierId": 114,
+        "supplierName": "A486",
+        "categoryId": 22,
+        "categoryName": "男士套头卫衣",
+        "categoryPath": "男装/男士卫衣/男士套头卫衣",
+        "regionId": 2,
+        "regionName": "杭州",
+        "buyerId": 59,
+        "buyerName": "乐佳兵",
+        "status": "approved",
+        "onshelfStatus": "onshelf",
+        "labeling": "",
+        "erpSyncStatus": "success",
+        "erpLastSyncAt": "2026-07-30T16:26:35+08:00",
+        "createdAt": "2026-07-30 13:24:07",
+        "updatedAt": "2026-07-30 16:26:35",
+        "pallet": "休闲",
+        "platform": "得物",
+        "sizeType": "国际码",
+        "brandLibraryId": 2,
+        "skus": [
+            {
+                "id": 136956,
+                "productId": 1632,
+                "code": "TH01+TH06-ZB9603-白色M",
+                "supplierSkuCode": "TH01+TH06-ZB9603-白色M",
+                "price": 0,
+                "cost": 28,
+                "stock": 100,
+                "attributes": [
+                    {
+                        "id": 401414,
+                        "attributeId": 48,
+                        "attributeName": "颜色",
+                        "attributeValueId": 3273,
+                        "attributeValue": "白色"
+                    },
+                    {
+                        "id": 401415,
+                        "attributeId": 49,
+                        "attributeName": "尺码",
+                        "attributeValueId": 1771,
+                        "attributeValue": "M"
+                    }
+                ]
+            },
+            {
+                "id": 136957,
+                "productId": 1632,
+                "code": "TH01+TH06-ZB9603-白色L",
+                "supplierSkuCode": "TH01+TH06-ZB9603-白色L",
+                "price": 0,
+                "cost": 28,
+                "stock": 100,
+                "attributes": [
+                    {
+                        "id": 401416,
+                        "attributeId": 48,
+                        "attributeName": "颜色",
+                        "attributeValueId": 3273,
+                        "attributeValue": "白色"
+                    },
+                    {
+                        "id": 401417,
+                        "attributeId": 49,
+                        "attributeName": "尺码",
+                        "attributeValueId": 1772,
+                        "attributeValue": "L"
+                    }
+                ]
+            },
+            {
+                "id": 136958,
+                "productId": 1632,
+                "code": "TH01+TH06-ZB9603-白色XL",
+                "supplierSkuCode": "TH01+TH06-ZB9603-白色XL",
+                "price": 0,
+                "cost": 28,
+                "stock": 100,
+                "attributes": [
+                    {
+                        "id": 401418,
+                        "attributeId": 48,
+                        "attributeName": "颜色",
+                        "attributeValueId": 3273,
+                        "attributeValue": "白色"
+                    },
+                    {
+                        "id": 401419,
+                        "attributeId": 49,
+                        "attributeName": "尺码",
+                        "attributeValueId": 1773,
+                        "attributeValue": "XL"
+                    }
+                ]
+            },
+            {
+                "id": 136959,
+                "productId": 1632,
+                "code": "TH01+TH06-ZB9603-白色2XL",
+                "supplierSkuCode": "TH01+TH06-ZB9603-白色2XL",
+                "price": 0,
+                "cost": 28,
+                "stock": 100,
+                "attributes": [
+                    {
+                        "id": 401420,
+                        "attributeId": 48,
+                        "attributeName": "颜色",
+                        "attributeValueId": 3273,
+                        "attributeValue": "白色"
+                    },
+                    {
+                        "id": 401421,
+                        "attributeId": 49,
+                        "attributeName": "尺码",
+                        "attributeValueId": 1774,
+                        "attributeValue": "2XL"
+                    }
+                ]
+            },
+            {
+                "id": 136960,
+                "productId": 1632,
+                "code": "TH01+TH06-ZB9603-白色3XL",
+                "supplierSkuCode": "TH01+TH06-ZB9603-白色3XL",
+                "price": 0,
+                "cost": 28,
+                "stock": 100,
+                "attributes": [
+                    {
+                        "id": 401422,
+                        "attributeId": 48,
+                        "attributeName": "颜色",
+                        "attributeValueId": 3273,
+                        "attributeValue": "白色"
+                    },
+                    {
+                        "id": 401423,
+                        "attributeId": 49,
+                        "attributeName": "尺码",
+                        "attributeValueId": 1775,
+                        "attributeValue": "3XL"
+                    }
+                ]
+            },
+            {
+                "id": 136961,
+                "productId": 1632,
+                "code": "TH01+TH06-ZB9603-白花灰M",
+                "supplierSkuCode": "TH01+TH06-ZB9603-白花灰M",
+                "price": 0,
+                "cost": 28,
+                "stock": 100,
+                "attributes": [
+                    {
+                        "id": 401424,
+                        "attributeId": 48,
+                        "attributeName": "颜色",
+                        "attributeValueId": 1546,
+                        "attributeValue": "白花灰"
+                    },
+                    {
+                        "id": 401425,
+                        "attributeId": 49,
+                        "attributeName": "尺码",
+                        "attributeValueId": 1771,
+                        "attributeValue": "M"
+                    }
+                ]
+            },
+            {
+                "id": 136962,
+                "productId": 1632,
+                "code": "TH01+TH06-ZB9603-白花灰L",
+                "supplierSkuCode": "TH01+TH06-ZB9603-白花灰L",
+                "price": 0,
+                "cost": 28,
+                "stock": 100,
+                "attributes": [
+                    {
+                        "id": 401426,
+                        "attributeId": 48,
+                        "attributeName": "颜色",
+                        "attributeValueId": 1546,
+                        "attributeValue": "白花灰"
+                    },
+                    {
+                        "id": 401427,
+                        "attributeId": 49,
+                        "attributeName": "尺码",
+                        "attributeValueId": 1772,
+                        "attributeValue": "L"
+                    }
+                ]
+            },
+            {
+                "id": 136963,
+                "productId": 1632,
+                "code": "TH01+TH06-ZB9603-白花灰XL",
+                "supplierSkuCode": "TH01+TH06-ZB9603-白花灰XL",
+                "price": 0,
+                "cost": 28,
+                "stock": 100,
+                "attributes": [
+                    {
+                        "id": 401428,
+                        "attributeId": 48,
+                        "attributeName": "颜色",
+                        "attributeValueId": 1546,
+                        "attributeValue": "白花灰"
+                    },
+                    {
+                        "id": 401429,
+                        "attributeId": 49,
+                        "attributeName": "尺码",
+                        "attributeValueId": 1773,
+                        "attributeValue": "XL"
+                    }
+                ]
+            },
+            {
+                "id": 136964,
+                "productId": 1632,
+                "code": "TH01+TH06-ZB9603-白花灰2XL",
+                "supplierSkuCode": "TH01+TH06-ZB9603-白花灰2XL",
+                "price": 0,
+                "cost": 28,
+                "stock": 100,
+                "attributes": [
+                    {
+                        "id": 401430,
+                        "attributeId": 48,
+                        "attributeName": "颜色",
+                        "attributeValueId": 1546,
+                        "attributeValue": "白花灰"
+                    },
+                    {
+                        "id": 401431,
+                        "attributeId": 49,
+                        "attributeName": "尺码",
+                        "attributeValueId": 1774,
+                        "attributeValue": "2XL"
+                    }
+                ]
+            },
+            {
+                "id": 136965,
+                "productId": 1632,
+                "code": "TH01+TH06-ZB9603白花灰3XL",
+                "supplierSkuCode": "TH01+TH06-ZB9603白花灰3XL",
+                "price": 0,
+                "cost": 28,
+                "stock": 100,
+                "attributes": [
+                    {
+                        "id": 401432,
+                        "attributeId": 48,
+                        "attributeName": "颜色",
+                        "attributeValueId": 1546,
+                        "attributeValue": "白花灰"
+                    },
+                    {
+                        "id": 401433,
+                        "attributeId": 49,
+                        "attributeName": "尺码",
+                        "attributeValueId": 1775,
+                        "attributeValue": "3XL"
+                    }
+                ]
+            },
+            {
+                "id": 136966,
+                "productId": 1632,
+                "code": "TH01+TH06-ZB9603-浅灰色M",
+                "supplierSkuCode": "TH01+TH06-ZB9603-浅灰色M",
+                "price": 0,
+                "cost": 28,
+                "stock": 100,
+                "attributes": [
+                    {
+                        "id": 401434,
+                        "attributeId": 48,
+                        "attributeName": "颜色",
+                        "attributeValueId": 3261,
+                        "attributeValue": "浅灰色"
+                    },
+                    {
+                        "id": 401435,
+                        "attributeId": 49,
+                        "attributeName": "尺码",
+                        "attributeValueId": 1771,
+                        "attributeValue": "M"
+                    }
+                ]
+            },
+            {
+                "id": 136967,
+                "productId": 1632,
+                "code": "TH01+TH06-ZB9603-浅灰色L",
+                "supplierSkuCode": "TH01+TH06-ZB9603-浅灰色L",
+                "price": 0,
+                "cost": 28,
+                "stock": 100,
+                "attributes": [
+                    {
+                        "id": 401436,
+                        "attributeId": 48,
+                        "attributeName": "颜色",
+                        "attributeValueId": 3261,
+                        "attributeValue": "浅灰色"
+                    },
+                    {
+                        "id": 401437,
+                        "attributeId": 49,
+                        "attributeName": "尺码",
+                        "attributeValueId": 1772,
+                        "attributeValue": "L"
+                    }
+                ]
+            },
+            {
+                "id": 136968,
+                "productId": 1632,
+                "code": "TH01+TH06-ZB9603-浅灰色XL",
+                "supplierSkuCode": "TH01+TH06-ZB9603-浅灰色XL",
+                "price": 0,
+                "cost": 28,
+                "stock": 100,
+                "attributes": [
+                    {
+                        "id": 401438,
+                        "attributeId": 48,
+                        "attributeName": "颜色",
+                        "attributeValueId": 3261,
+                        "attributeValue": "浅灰色"
+                    },
+                    {
+                        "id": 401439,
+                        "attributeId": 49,
+                        "attributeName": "尺码",
+                        "attributeValueId": 1773,
+                        "attributeValue": "XL"
+                    }
+                ]
+            },
+            {
+                "id": 136969,
+                "productId": 1632,
+                "code": "TH01+TH06-ZB9603-浅灰色2XL",
+                "supplierSkuCode": "TH01+TH06-ZB9603-浅灰色2XL",
+                "price": 0,
+                "cost": 28,
+                "stock": 100,
+                "attributes": [
+                    {
+                        "id": 401440,
+                        "attributeId": 48,
+                        "attributeName": "颜色",
+                        "attributeValueId": 3261,
+                        "attributeValue": "浅灰色"
+                    },
+                    {
+                        "id": 401441,
+                        "attributeId": 49,
+                        "attributeName": "尺码",
+                        "attributeValueId": 1774,
+                        "attributeValue": "2XL"
+                    }
+                ]
+            },
+            {
+                "id": 136970,
+                "productId": 1632,
+                "code": "TH01+TH06-ZB9603-浅灰色3XL",
+                "supplierSkuCode": "TH01+TH06-ZB9603-浅灰色3XL",
+                "price": 0,
+                "cost": 28,
+                "stock": 100,
+                "attributes": [
+                    {
+                        "id": 401442,
+                        "attributeId": 48,
+                        "attributeName": "颜色",
+                        "attributeValueId": 3261,
+                        "attributeValue": "浅灰色"
+                    },
+                    {
+                        "id": 401443,
+                        "attributeId": 49,
+                        "attributeName": "尺码",
+                        "attributeValueId": 1775,
+                        "attributeValue": "3XL"
+                    }
+                ]
+            },
+            {
+                "id": 136971,
+                "productId": 1632,
+                "code": "TH01+TH06-ZB9603-杏色M",
+                "supplierSkuCode": "TH01+TH06-ZB9603-杏色M",
+                "price": 0,
+                "cost": 28,
+                "stock": 100,
+                "attributes": [
+                    {
+                        "id": 401444,
+                        "attributeId": 48,
+                        "attributeName": "颜色",
+                        "attributeValueId": 3274,
+                        "attributeValue": "杏色"
+                    },
+                    {
+                        "id": 401445,
+                        "attributeId": 49,
+                        "attributeName": "尺码",
+                        "attributeValueId": 1771,
+                        "attributeValue": "M"
+                    }
+                ]
+            },
+            {
+                "id": 136972,
+                "productId": 1632,
+                "code": "TH01+TH06-ZB9603-杏色L",
+                "supplierSkuCode": "TH01+TH06-ZB9603-杏色L",
+                "price": 0,
+                "cost": 28,
+                "stock": 100,
+                "attributes": [
+                    {
+                        "id": 401446,
+                        "attributeId": 48,
+                        "attributeName": "颜色",
+                        "attributeValueId": 3274,
+                        "attributeValue": "杏色"
+                    },
+                    {
+                        "id": 401447,
+                        "attributeId": 49,
+                        "attributeName": "尺码",
+                        "attributeValueId": 1772,
+                        "attributeValue": "L"
+                    }
+                ]
+            },
+            {
+                "id": 136973,
+                "productId": 1632,
+                "code": "TH01+TH06-ZB9603-杏色XL",
+                "supplierSkuCode": "TH01+TH06-ZB9603-杏色XL",
+                "price": 0,
+                "cost": 28,
+                "stock": 100,
+                "attributes": [
+                    {
+                        "id": 401448,
+                        "attributeId": 48,
+                        "attributeName": "颜色",
+                        "attributeValueId": 3274,
+                        "attributeValue": "杏色"
+                    },
+                    {
+                        "id": 401449,
+                        "attributeId": 49,
+                        "attributeName": "尺码",
+                        "attributeValueId": 1773,
+                        "attributeValue": "XL"
+                    }
+                ]
+            },
+            {
+                "id": 136974,
+                "productId": 1632,
+                "code": "TH01+TH06-ZB9603-杏色2XL",
+                "supplierSkuCode": "TH01+TH06-ZB9603-杏色2XL",
+                "price": 0,
+                "cost": 28,
+                "stock": 100,
+                "attributes": [
+                    {
+                        "id": 401450,
+                        "attributeId": 48,
+                        "attributeName": "颜色",
+                        "attributeValueId": 3274,
+                        "attributeValue": "杏色"
+                    },
+                    {
+                        "id": 401451,
+                        "attributeId": 49,
+                        "attributeName": "尺码",
+                        "attributeValueId": 1774,
+                        "attributeValue": "2XL"
+                    }
+                ]
+            },
+            {
+                "id": 136975,
+                "productId": 1632,
+                "code": "TH01+TH06-ZB9603-杏色3XL",
+                "supplierSkuCode": "TH01+TH06-ZB9603-杏色3XL",
+                "price": 0,
+                "cost": 28,
+                "stock": 100,
+                "attributes": [
+                    {
+                        "id": 401452,
+                        "attributeId": 48,
+                        "attributeName": "颜色",
+                        "attributeValueId": 3274,
+                        "attributeValue": "杏色"
+                    },
+                    {
+                        "id": 401453,
+                        "attributeId": 49,
+                        "attributeName": "尺码",
+                        "attributeValueId": 1775,
+                        "attributeValue": "3XL"
+                    }
+                ]
+            },
+            {
+                "id": 136976,
+                "productId": 1632,
+                "code": "TH01+TH06-ZB9603-蓝色M",
+                "supplierSkuCode": "TH01+TH06-ZB9603-蓝色M",
+                "price": 0,
+                "cost": 28,
+                "stock": 100,
+                "attributes": [
+                    {
+                        "id": 401454,
+                        "attributeId": 48,
+                        "attributeName": "颜色",
+                        "attributeValueId": 3263,
+                        "attributeValue": "蓝色"
+                    },
+                    {
+                        "id": 401455,
+                        "attributeId": 49,
+                        "attributeName": "尺码",
+                        "attributeValueId": 1771,
+                        "attributeValue": "M"
+                    }
+                ]
+            },
+            {
+                "id": 136977,
+                "productId": 1632,
+                "code": "TH01+TH06-ZB9603-蓝色L",
+                "supplierSkuCode": "TH01+TH06-ZB9603-蓝色L",
+                "price": 0,
+                "cost": 28,
+                "stock": 100,
+                "attributes": [
+                    {
+                        "id": 401456,
+                        "attributeId": 48,
+                        "attributeName": "颜色",
+                        "attributeValueId": 3263,
+                        "attributeValue": "蓝色"
+                    },
+                    {
+                        "id": 401457,
+                        "attributeId": 49,
+                        "attributeName": "尺码",
+                        "attributeValueId": 1772,
+                        "attributeValue": "L"
+                    }
+                ]
+            },
+            {
+                "id": 136978,
+                "productId": 1632,
+                "code": "TH01+TH06-ZB9603-蓝色XL",
+                "supplierSkuCode": "TH01+TH06-ZB9603-蓝色XL",
+                "price": 0,
+                "cost": 28,
+                "stock": 100,
+                "attributes": [
+                    {
+                        "id": 401458,
+                        "attributeId": 48,
+                        "attributeName": "颜色",
+                        "attributeValueId": 3263,
+                        "attributeValue": "蓝色"
+                    },
+                    {
+                        "id": 401459,
+                        "attributeId": 49,
+                        "attributeName": "尺码",
+                        "attributeValueId": 1773,
+                        "attributeValue": "XL"
+                    }
+                ]
+            },
+            {
+                "id": 136979,
+                "productId": 1632,
+                "code": "TH01+TH06-ZB9603-蓝色2XL",
+                "supplierSkuCode": "TH01+TH06-ZB9603-蓝色2XL",
+                "price": 0,
+                "cost": 28,
+                "stock": 100,
+                "attributes": [
+                    {
+                        "id": 401460,
+                        "attributeId": 48,
+                        "attributeName": "颜色",
+                        "attributeValueId": 3263,
+                        "attributeValue": "蓝色"
+                    },
+                    {
+                        "id": 401461,
+                        "attributeId": 49,
+                        "attributeName": "尺码",
+                        "attributeValueId": 1774,
+                        "attributeValue": "2XL"
+                    }
+                ]
+            },
+            {
+                "id": 136980,
+                "productId": 1632,
+                "code": "TH01+TH06-ZB9603-蓝色3XL",
+                "supplierSkuCode": "TH01+TH06-ZB9603-蓝色3XL",
+                "price": 0,
+                "cost": 28,
+                "stock": 100,
+                "attributes": [
+                    {
+                        "id": 401462,
+                        "attributeId": 48,
+                        "attributeName": "颜色",
+                        "attributeValueId": 3263,
+                        "attributeValue": "蓝色"
+                    },
+                    {
+                        "id": 401463,
+                        "attributeId": 49,
+                        "attributeName": "尺码",
+                        "attributeValueId": 1775,
+                        "attributeValue": "3XL"
+                    }
+                ]
+            },
+            {
+                "id": 136981,
+                "productId": 1632,
+                "code": "TH01+TH06-ZB9603-粉色M",
+                "supplierSkuCode": "TH01+TH06-ZB9603-粉色M",
+                "price": 0,
+                "cost": 28,
+                "stock": 100,
+                "attributes": [
+                    {
+                        "id": 401464,
+                        "attributeId": 48,
+                        "attributeName": "颜色",
+                        "attributeValueId": 3284,
+                        "attributeValue": "粉色"
+                    },
+                    {
+                        "id": 401465,
+                        "attributeId": 49,
+                        "attributeName": "尺码",
+                        "attributeValueId": 1771,
+                        "attributeValue": "M"
+                    }
+                ]
+            },
+            {
+                "id": 136982,
+                "productId": 1632,
+                "code": "TH01+TH06-ZB9603-粉色L",
+                "supplierSkuCode": "TH01+TH06-ZB9603-粉色L",
+                "price": 0,
+                "cost": 28,
+                "stock": 100,
+                "attributes": [
+                    {
+                        "id": 401466,
+                        "attributeId": 48,
+                        "attributeName": "颜色",
+                        "attributeValueId": 3284,
+                        "attributeValue": "粉色"
+                    },
+                    {
+                        "id": 401467,
+                        "attributeId": 49,
+                        "attributeName": "尺码",
+                        "attributeValueId": 1772,
+                        "attributeValue": "L"
+                    }
+                ]
+            },
+            {
+                "id": 136983,
+                "productId": 1632,
+                "code": "TH01+TH06-ZB9603-粉色XL",
+                "supplierSkuCode": "TH01+TH06-ZB9603-粉色XL",
+                "price": 0,
+                "cost": 28,
+                "stock": 100,
+                "attributes": [
+                    {
+                        "id": 401468,
+                        "attributeId": 48,
+                        "attributeName": "颜色",
+                        "attributeValueId": 3284,
+                        "attributeValue": "粉色"
+                    },
+                    {
+                        "id": 401469,
+                        "attributeId": 49,
+                        "attributeName": "尺码",
+                        "attributeValueId": 1773,
+                        "attributeValue": "XL"
+                    }
+                ]
+            },
+            {
+                "id": 136984,
+                "productId": 1632,
+                "code": "TH01+TH06-ZB9603-粉色2XL",
+                "supplierSkuCode": "TH01+TH06-ZB9603-粉色2XL",
+                "price": 0,
+                "cost": 28,
+                "stock": 100,
+                "attributes": [
+                    {
+                        "id": 401470,
+                        "attributeId": 48,
+                        "attributeName": "颜色",
+                        "attributeValueId": 3284,
+                        "attributeValue": "粉色"
+                    },
+                    {
+                        "id": 401471,
+                        "attributeId": 49,
+                        "attributeName": "尺码",
+                        "attributeValueId": 1774,
+                        "attributeValue": "2XL"
+                    }
+                ]
+            },
+            {
+                "id": 136985,
+                "productId": 1632,
+                "code": "TH01+TH06-ZB9603-粉色3XL",
+                "supplierSkuCode": "TH01+TH06-ZB9603-粉色3XL",
+                "price": 0,
+                "cost": 28,
+                "stock": 100,
+                "attributes": [
+                    {
+                        "id": 401472,
+                        "attributeId": 48,
+                        "attributeName": "颜色",
+                        "attributeValueId": 3284,
+                        "attributeValue": "粉色"
+                    },
+                    {
+                        "id": 401473,
+                        "attributeId": 49,
+                        "attributeName": "尺码",
+                        "attributeValueId": 1775,
+                        "attributeValue": "3XL"
+                    }
+                ]
+            },
+            {
+                "id": 136986,
+                "productId": 1632,
+                "code": "TH01+TH06-ZB9603-藏青色M",
+                "supplierSkuCode": "TH01+TH06-ZB9603-藏青色M",
+                "price": 0,
+                "cost": 28,
+                "stock": 100,
+                "attributes": [
+                    {
+                        "id": 401474,
+                        "attributeId": 48,
+                        "attributeName": "颜色",
+                        "attributeValueId": 1304,
+                        "attributeValue": "藏青色"
+                    },
+                    {
+                        "id": 401475,
+                        "attributeId": 49,
+                        "attributeName": "尺码",
+                        "attributeValueId": 1771,
+                        "attributeValue": "M"
+                    }
+                ]
+            },
+            {
+                "id": 136987,
+                "productId": 1632,
+                "code": "TH01+TH06-ZB9603-藏青色L",
+                "supplierSkuCode": "TH01+TH06-ZB9603-藏青色L",
+                "price": 0,
+                "cost": 28,
+                "stock": 100,
+                "attributes": [
+                    {
+                        "id": 401476,
+                        "attributeId": 48,
+                        "attributeName": "颜色",
+                        "attributeValueId": 1304,
+                        "attributeValue": "藏青色"
+                    },
+                    {
+                        "id": 401477,
+                        "attributeId": 49,
+                        "attributeName": "尺码",
+                        "attributeValueId": 1772,
+                        "attributeValue": "L"
+                    }
+                ]
+            },
+            {
+                "id": 136988,
+                "productId": 1632,
+                "code": "TH01+TH06-ZB9603-藏青色XL",
+                "supplierSkuCode": "TH01+TH06-ZB9603-藏青色XL",
+                "price": 0,
+                "cost": 28,
+                "stock": 100,
+                "attributes": [
+                    {
+                        "id": 401478,
+                        "attributeId": 48,
+                        "attributeName": "颜色",
+                        "attributeValueId": 1304,
+                        "attributeValue": "藏青色"
+                    },
+                    {
+                        "id": 401479,
+                        "attributeId": 49,
+                        "attributeName": "尺码",
+                        "attributeValueId": 1773,
+                        "attributeValue": "XL"
+                    }
+                ]
+            },
+            {
+                "id": 136989,
+                "productId": 1632,
+                "code": "TH01+TH06-ZB9603-藏青色2XL",
+                "supplierSkuCode": "TH01+TH06-ZB9603-藏青色2XL",
+                "price": 0,
+                "cost": 28,
+                "stock": 100,
+                "attributes": [
+                    {
+                        "id": 401480,
+                        "attributeId": 48,
+                        "attributeName": "颜色",
+                        "attributeValueId": 1304,
+                        "attributeValue": "藏青色"
+                    },
+                    {
+                        "id": 401481,
+                        "attributeId": 49,
+                        "attributeName": "尺码",
+                        "attributeValueId": 1774,
+                        "attributeValue": "2XL"
+                    }
+                ]
+            },
+            {
+                "id": 136990,
+                "productId": 1632,
+                "code": "TH01+TH06-ZB9603-藏青色3XL",
+                "supplierSkuCode": "TH01+TH06-ZB9603-藏青色3XL",
+                "price": 0,
+                "cost": 28,
+                "stock": 100,
+                "attributes": [
+                    {
+                        "id": 401482,
+                        "attributeId": 48,
+                        "attributeName": "颜色",
+                        "attributeValueId": 1304,
+                        "attributeValue": "藏青色"
+                    },
+                    {
+                        "id": 401483,
+                        "attributeId": 49,
+                        "attributeName": "尺码",
+                        "attributeValueId": 1775,
+                        "attributeValue": "3XL"
+                    }
+                ]
+            },
+            {
+                "id": 136991,
+                "productId": 1632,
+                "code": "TH01+TH06-ZB9603-酒红色M",
+                "supplierSkuCode": "TH01+TH06-ZB9603-酒红色M",
+                "price": 0,
+                "cost": 28,
+                "stock": 100,
+                "attributes": [
+                    {
+                        "id": 401484,
+                        "attributeId": 48,
+                        "attributeName": "颜色",
+                        "attributeValueId": 1317,
+                        "attributeValue": "酒红色"
+                    },
+                    {
+                        "id": 401485,
+                        "attributeId": 49,
+                        "attributeName": "尺码",
+                        "attributeValueId": 1771,
+                        "attributeValue": "M"
+                    }
+                ]
+            },
+            {
+                "id": 136992,
+                "productId": 1632,
+                "code": "TH01+TH06-ZB9603-酒红色L",
+                "supplierSkuCode": "TH01+TH06-ZB9603-酒红色L",
+                "price": 0,
+                "cost": 28,
+                "stock": 100,
+                "attributes": [
+                    {
+                        "id": 401486,
+                        "attributeId": 48,
+                        "attributeName": "颜色",
+                        "attributeValueId": 1317,
+                        "attributeValue": "酒红色"
+                    },
+                    {
+                        "id": 401487,
+                        "attributeId": 49,
+                        "attributeName": "尺码",
+                        "attributeValueId": 1772,
+                        "attributeValue": "L"
+                    }
+                ]
+            },
+            {
+                "id": 136993,
+                "productId": 1632,
+                "code": "TH01+TH06-ZB9603-酒红色XL",
+                "supplierSkuCode": "TH01+TH06-ZB9603-酒红色XL",
+                "price": 0,
+                "cost": 28,
+                "stock": 100,
+                "attributes": [
+                    {
+                        "id": 401488,
+                        "attributeId": 48,
+                        "attributeName": "颜色",
+                        "attributeValueId": 1317,
+                        "attributeValue": "酒红色"
+                    },
+                    {
+                        "id": 401489,
+                        "attributeId": 49,
+                        "attributeName": "尺码",
+                        "attributeValueId": 1773,
+                        "attributeValue": "XL"
+                    }
+                ]
+            },
+            {
+                "id": 136994,
+                "productId": 1632,
+                "code": "TH01+TH06-ZB9603-酒红色2XL",
+                "supplierSkuCode": "TH01+TH06-ZB9603-酒红色2XL",
+                "price": 0,
+                "cost": 28,
+                "stock": 100,
+                "attributes": [
+                    {
+                        "id": 401490,
+                        "attributeId": 48,
+                        "attributeName": "颜色",
+                        "attributeValueId": 1317,
+                        "attributeValue": "酒红色"
+                    },
+                    {
+                        "id": 401491,
+                        "attributeId": 49,
+                        "attributeName": "尺码",
+                        "attributeValueId": 1774,
+                        "attributeValue": "2XL"
+                    }
+                ]
+            },
+            {
+                "id": 136995,
+                "productId": 1632,
+                "code": "TH01+TH06-ZB9603-酒红色3XL",
+                "supplierSkuCode": "TH01+TH06-ZB9603-酒红色3XL",
+                "price": 0,
+                "cost": 28,
+                "stock": 100,
+                "attributes": [
+                    {
+                        "id": 401492,
+                        "attributeId": 48,
+                        "attributeName": "颜色",
+                        "attributeValueId": 1317,
+                        "attributeValue": "酒红色"
+                    },
+                    {
+                        "id": 401493,
+                        "attributeId": 49,
+                        "attributeName": "尺码",
+                        "attributeValueId": 1775,
+                        "attributeValue": "3XL"
+                    }
+                ]
+            },
+            {
+                "id": 136996,
+                "productId": 1632,
+                "code": "TH01+TH06-ZB9603-黑色M",
+                "supplierSkuCode": "TH01+TH06-ZB9603-黑色M",
+                "price": 0,
+                "cost": 28,
+                "stock": 100,
+                "attributes": [
+                    {
+                        "id": 401494,
+                        "attributeId": 48,
+                        "attributeName": "颜色",
+                        "attributeValueId": 3262,
+                        "attributeValue": "黑色"
+                    },
+                    {
+                        "id": 401495,
+                        "attributeId": 49,
+                        "attributeName": "尺码",
+                        "attributeValueId": 1771,
+                        "attributeValue": "M"
+                    }
+                ]
+            },
+            {
+                "id": 136997,
+                "productId": 1632,
+                "code": "TH01+TH06-ZB9603-黑色L",
+                "supplierSkuCode": "TH01+TH06-ZB9603-黑色L",
+                "price": 0,
+                "cost": 28,
+                "stock": 100,
+                "attributes": [
+                    {
+                        "id": 401496,
+                        "attributeId": 48,
+                        "attributeName": "颜色",
+                        "attributeValueId": 3262,
+                        "attributeValue": "黑色"
+                    },
+                    {
+                        "id": 401497,
+                        "attributeId": 49,
+                        "attributeName": "尺码",
+                        "attributeValueId": 1772,
+                        "attributeValue": "L"
+                    }
+                ]
+            },
+            {
+                "id": 136998,
+                "productId": 1632,
+                "code": "TH01+TH06-ZB9603-黑色XL",
+                "supplierSkuCode": "TH01+TH06-ZB9603-黑色XL",
+                "price": 0,
+                "cost": 28,
+                "stock": 100,
+                "attributes": [
+                    {
+                        "id": 401498,
+                        "attributeId": 48,
+                        "attributeName": "颜色",
+                        "attributeValueId": 3262,
+                        "attributeValue": "黑色"
+                    },
+                    {
+                        "id": 401499,
+                        "attributeId": 49,
+                        "attributeName": "尺码",
+                        "attributeValueId": 1773,
+                        "attributeValue": "XL"
+                    }
+                ]
+            },
+            {
+                "id": 136999,
+                "productId": 1632,
+                "code": "TH01+TH06-ZB9603-黑色2XL",
+                "supplierSkuCode": "TH01+TH06-ZB9603-黑色2XL",
+                "price": 0,
+                "cost": 28,
+                "stock": 100,
+                "attributes": [
+                    {
+                        "id": 401500,
+                        "attributeId": 48,
+                        "attributeName": "颜色",
+                        "attributeValueId": 3262,
+                        "attributeValue": "黑色"
+                    },
+                    {
+                        "id": 401501,
+                        "attributeId": 49,
+                        "attributeName": "尺码",
+                        "attributeValueId": 1774,
+                        "attributeValue": "2XL"
+                    }
+                ]
+            },
+            {
+                "id": 137000,
+                "productId": 1632,
+                "code": "TH01+TH06-ZB9603-黑色3XL",
+                "supplierSkuCode": "TH01+TH06-ZB9603-黑色3XL",
+                "price": 0,
+                "cost": 28,
+                "stock": 100,
+                "attributes": [
+                    {
+                        "id": 401502,
+                        "attributeId": 48,
+                        "attributeName": "颜色",
+                        "attributeValueId": 3262,
+                        "attributeValue": "黑色"
+                    },
+                    {
+                        "id": 401503,
+                        "attributeId": 49,
+                        "attributeName": "尺码",
+                        "attributeValueId": 1775,
+                        "attributeValue": "3XL"
+                    }
+                ]
+            }
+        ],
+        "attributes": [
+            {
+                "id": 194740,
+                "attributeId": 1,
+                "attributeCode": "caizhi",
+                "attributeName": "材质",
+                "attributeValueId": 1,
+                "attributeValue": "棉",
+                "subValueNumber": 100
+            },
+            {
+                "id": 194741,
+                "attributeId": 3,
+                "attributeCode": "syrq",
+                "attributeName": "适用人群",
+                "attributeValueId": 118,
+                "attributeValue": "青年"
+            },
+            {
+                "id": 194742,
+                "attributeId": 3,
+                "attributeCode": "syrq",
+                "attributeName": "适用人群",
+                "attributeValueId": 120,
+                "attributeValue": "青少年"
+            },
+            {
+                "id": 194743,
+                "attributeId": 3,
+                "attributeCode": "syrq",
+                "attributeName": "适用人群",
+                "attributeValueId": 124,
+                "attributeValue": "中青年"
+            },
+            {
+                "id": 194744,
+                "attributeId": 7,
+                "attributeCode": "sssj",
+                "attributeName": "上市时间",
+                "attributeValueId": 183,
+                "attributeValue": "2026年春季"
+            },
+            {
+                "id": 194745,
+                "attributeId": 12,
+                "attributeCode": "lingxing",
+                "attributeName": "领型",
+                "attributeValueId": 418,
+                "attributeValue": "圆领"
+            },
+            {
+                "id": 194746,
+                "attributeId": 13,
+                "attributeCode": "fengge",
+                "attributeName": "风格",
+                "attributeValueId": 460,
+                "attributeValue": "休闲风"
+            },
+            {
+                "id": 194747,
+                "attributeId": 13,
+                "attributeCode": "fengge",
+                "attributeName": "风格",
+                "attributeValueId": 459,
+                "attributeValue": "潮流风"
+            },
+            {
+                "id": 194748,
+                "attributeId": 20,
+                "attributeCode": "czfs",
+                "attributeName": "穿着方式",
+                "attributeValueId": 647,
+                "attributeValue": "套头"
+            },
+            {
+                "id": 194734,
+                "attributeId": 38,
+                "attributeCode": "ms-chengben",
+                "attributeName": "买手成本",
+                "valueNumber": 28
+            },
+            {
+                "id": 194735,
+                "attributeId": 39,
+                "attributeCode": "cg-chengben",
+                "attributeName": "采购成本",
+                "valueNumber": 28
+            },
+            {
+                "id": 194736,
+                "attributeId": 41,
+                "attributeCode": "kucun",
+                "attributeName": "库存数量",
+                "valueNumber": 1000
+            },
+            {
+                "id": 194730,
+                "attributeId": 42,
+                "attributeCode": "nianling",
+                "attributeName": "推荐成交年龄",
+                "attributeValueId": 792,
+                "attributeValue": "18-25岁"
+            },
+            {
+                "id": 194731,
+                "attributeId": 42,
+                "attributeCode": "nianling",
+                "attributeName": "推荐成交年龄",
+                "attributeValueId": 793,
+                "attributeValue": "25-30岁"
+            },
+            {
+                "id": 194732,
+                "attributeId": 42,
+                "attributeCode": "nianling",
+                "attributeName": "推荐成交年龄",
+                "attributeValueId": 794,
+                "attributeValue": "30-40岁"
+            },
+            {
+                "id": 194733,
+                "attributeId": 43,
+                "attributeCode": "leixing-pinpai",
+                "attributeName": "商品类型与品牌",
+                "attributeValueId": 798,
+                "attributeValue": "二开",
+                "subValueText": "印花"
+            },
+            {
+                "id": 194737,
+                "attributeId": 44,
+                "attributeCode": "diaopaijia",
+                "attributeName": "吊牌价",
+                "attributeValueId": 1802,
+                "attributeValue": "399"
+            },
+            {
+                "id": 194738,
+                "attributeId": 45,
+                "attributeCode": "ZXBZ",
+                "attributeName": "执行标准",
+                "valueText": "FZ/T 73020-2019"
+            },
+            {
+                "id": 194739,
+                "attributeId": 46,
+                "attributeCode": "AQLB",
+                "attributeName": "安全类别",
+                "valueText": "GB18401-2010 B类"
+            },
+            {
+                "id": 194727,
+                "attributeId": 47,
+                "attributeCode": "huopan",
+                "attributeName": "货盘",
+                "attributeValueId": 801,
+                "attributeValue": "休闲"
+            },
+            {
+                "id": 194728,
+                "attributeId": 47,
+                "attributeCode": "huopan",
+                "attributeName": "货盘",
+                "attributeValueId": 803,
+                "attributeValue": "青少年"
+            },
+            {
+                "id": 194729,
+                "attributeId": 47,
+                "attributeCode": "huopan",
+                "attributeName": "货盘",
+                "attributeValueId": 2539,
+                "attributeValue": "青年"
+            }
+        ],
+        "imageSets": [
+            {
+                "id": 6621,
+                "productId": 1632,
+                "buyerId": 59,
+                "platform": "得物",
+                "sourceUrl": "",
+                "shopName": "帕丁顿熊",
+                "shopIds": null,
+                "imageSetStyle": "",
+                "aiPrompt": "",
+                "mainImagePaths": [
+                    "products/ZB9603/main/图片下载.jpg",
+                    "products/ZB9603/main/图片下载 (1).jpg",
+                    "products/ZB9603/main/图片下载 (10).jpg",
+                    "products/ZB9603/main/图片下载 (11).jpg",
+                    "products/ZB9603/main/图片下载 (12).jpg",
+                    "products/ZB9603/main/图片下载 (13).jpg",
+                    "products/ZB9603/main/图片下载 (14).jpg",
+                    "products/ZB9603/main/图片下载 (15).jpg",
+                    "products/ZB9603/main/图片下载 (2).jpg",
+                    "products/ZB9603/main/图片下载 (3).jpg",
+                    "products/ZB9603/main/图片下载 (4).jpg",
+                    "products/ZB9603/main/图片下载 (5).jpg",
+                    "products/ZB9603/main/图片下载 (6).jpg",
+                    "products/ZB9603/main/图片下载 (7).jpg",
+                    "products/ZB9603/main/图片下载 (8).jpg",
+                    "products/ZB9603/main/图片下载 (9).jpg"
+                ],
+                "longImagePaths": [],
+                "detailImagePaths": [],
+                "colorMainPaths": {},
+                "colorDewuPaths": {
+                    "杏色": [
+                        "products/ZB9603/color-dewu/杏色/图片下载 (6).jpg",
+                        "products/ZB9603/color-dewu/杏色/图片下载 (7).jpg"
+                    ],
+                    "浅灰色": [
+                        "products/ZB9603/color-dewu/浅灰色/图片下载 (4).jpg",
+                        "products/ZB9603/color-dewu/浅灰色/图片下载 (5).jpg"
+                    ],
+                    "白色": [
+                        "products/ZB9603/color-dewu/白色/图片下载.jpg",
+                        "products/ZB9603/color-dewu/白色/图片下载 (1).jpg"
+                    ],
+                    "白花灰": [
+                        "products/ZB9603/color-dewu/白花灰/图片下载 (2).jpg",
+                        "products/ZB9603/color-dewu/白花灰/图片下载 (3).jpg"
+                    ],
+                    "粉色": [
+                        "products/ZB9603/color-dewu/粉色/图片下载 (8).jpg",
+                        "products/ZB9603/color-dewu/粉色/图片下载 (9).jpg"
+                    ],
+                    "蓝色": [
+                        "products/ZB9603/color-dewu/蓝色/图片下载 (10).jpg",
+                        "products/ZB9603/color-dewu/蓝色/图片下载 (11).jpg"
+                    ],
+                    "藏青色": [
+                        "products/ZB9603/color-dewu/藏青色/图片下载 (12).jpg",
+                        "products/ZB9603/color-dewu/藏青色/图片下载 (13).jpg"
+                    ],
+                    "酒红色": [
+                        "products/ZB9603/color-dewu/酒红色/图片下载 (14).jpg",
+                        "products/ZB9603/color-dewu/酒红色/图片下载 (15).jpg"
+                    ],
+                    "黑色": [
+                        "products/ZB9603/color-dewu/黑色/图片下载 (16).jpg",
+                        "products/ZB9603/color-dewu/黑色/图片下载 (17).jpg"
+                    ]
+                },
+                "colorLongPaths": {},
+                "whiteBgPaths": [],
+                "firstSquarePaths": [
+                    "products/ZB9603/first-square/图片下载 (2).jpg"
+                ],
+                "firstLongPaths": [
+                    "products/ZB9603/first-long/微信图片_20260727150856_7_56.jpg"
+                ],
+                "remark": "",
+                "brandItemNumber": null,
+                "brandProductCode": null,
+                "brandLibraryId": null,
+                "createdAt": "2026-07-30T13:24:07+08:00",
+                "updatedAt": "2026-07-30T15:20:36+08:00"
+            }
+        ]
+    }
+}

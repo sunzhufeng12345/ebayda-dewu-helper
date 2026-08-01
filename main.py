@@ -141,6 +141,7 @@ class DewuStartPage:
         self._select_brand()
         self._select_category()
         self._select_audience()
+        self._verify_blank()
         self._upload_first_square()
         self._verify_external_link_blank()
         return self._create_application()
@@ -148,8 +149,11 @@ class DewuStartPage:
     def _verify_blank(self) -> None:
         fields = {
             label: _element_value(self._start_input(label))
-            for label in ("商品品牌", "商品类目", "适用人群", "商品链接")
+            for label in ("商品品牌", "商品类目", "适用人群")
         }
+        external_link = self._start_input("商品链接", required=False)
+        if external_link is not None:
+            fields["商品链接"] = _element_value(external_link)
         image_count = len(self._start_image_items())
         _validate_start_page_state(fields, image_count)
 
@@ -250,18 +254,22 @@ class DewuStartPage:
         self.result.completed_sections.append("new_product_start")
         return detail_tab
 
-    def _start_form_item(self, label: str) -> Any:
+    def _start_form_item(self, label: str, *, required: bool = True) -> Any | None:
         literal = _xpath_literal(label)
         items = self._visible_elements(
             "//form//*[contains(concat(' ',normalize-space(@class),' '),' el-form-item ')]"
-            f"[.//label[normalize-space(.)={literal}]]"
+            f"[.//label[contains(normalize-space(.),{literal})]]"
         )
         if len(items) != 1:
+            if not required and not items:
+                return None
             raise AutomationError(f"起始页字段“{label}”数量异常：{len(items)}")
         return items[0]
 
-    def _start_input(self, label: str) -> Any:
-        form_item = self._start_form_item(label)
+    def _start_input(self, label: str, *, required: bool = True) -> Any | None:
+        form_item = self._start_form_item(label, required=required)
+        if form_item is None:
+            return None
         inputs = [
             item
             for item in form_item.eles(
@@ -271,11 +279,15 @@ class DewuStartPage:
             if _is_displayed(item)
         ]
         if not inputs:
+            if not required:
+                return None
             raise AutomationError(f"起始页字段“{label}”没有输入框")
         return inputs[0]
 
     def _start_image_items(self) -> list[Any]:
-        form_item = self._start_form_item("商品图片")
+        form_item = self._start_form_item("商品图片", required=False)
+        if form_item is None:
+            return []
         return self._visible_elements(
             ".//ul[contains(@class,'el-upload-list')]//li",
             scope=form_item,
@@ -1668,8 +1680,8 @@ class DewuAutomation:
         raise AutomationError(message)
 
 
-def attach_to_dewu_tab(port: int) -> tuple[Any, Any]:
-    # 只连接已经由人工启动、登录并打开目标页面的 Chrome，不负责自动登录或处理验证码。
+def _connect_to_chrome(port: int) -> Any:
+    # 只连接已经由人工启动、登录的 Chrome，不负责自动登录或处理验证码。
     command = _chrome_start_command(port)
     try:
         with socket.create_connection(("127.0.0.1", port), timeout=1):
@@ -1690,30 +1702,51 @@ def attach_to_dewu_tab(port: int) -> tuple[Any, Any]:
             f"无法连接 Chrome 调试端口 {port}。先运行：\n{command}\n"
             "然后在这个 Chrome 中登录得物并打开新品草稿页。"
         ) from error
+    return browser
 
-    # 连接后筛选目标 URL；多个候选时停止，避免把数据填入错误草稿。
-    candidates = []
-    for tab in browser.get_tabs():
-        try:
-            parsed = urlparse(str(tab.url))
-        except Exception:
-            continue
-        if parsed.hostname == TARGET_HOST and TARGET_PATH_FRAGMENT in parsed.path:
-            candidates.append(tab)
+
+def _activate_dewu_tab(tab: Any, description: str) -> Any:
+    # DrissionPage 的键盘输入依赖当前激活标签页，后台标签可能导致输入无异常但页面不回显。
+    try:
+        tab.set.activate()
+    except Exception as error:
+        raise AutomationError(f"无法激活{description}，请将该页面切到前台后重试") from error
+    return tab
+
+
+def attach_to_dewu_start_tab(port: int) -> tuple[Any, Any]:
+    # 起始页是每次新品申请的固定入口；多个候选时停止，避免使用半填写页面。
+    browser = _connect_to_chrome(port)
+    candidates = [
+        tab for tab in browser.get_tabs() if _is_start_page_url(str(tab.url))
+    ]
+    if len(candidates) > 1:
+        raise AutomationError(
+            f"找到 {len(candidates)} 个得物新品申请起始页；请只保留本次要填写的一个空白页面"
+        )
+    if candidates:
+        return browser, _activate_dewu_tab(candidates[0], "得物新品申请起始页")
+
+    try:
+        tab = browser.new_tab(START_PAGE_URL)
+    except Exception as error:
+        raise AutomationError(f"无法打开得物新品申请起始页：{START_PAGE_URL}") from error
+    return browser, _activate_dewu_tab(tab, "得物新品申请起始页")
+
+
+def attach_to_dewu_tab(port: int) -> tuple[Any, Any]:
+    # 保留详情页连接入口，供已有草稿调试或兼容调用使用；主流程从起始页入口开始。
+    browser = _connect_to_chrome(port)
+    candidates = [
+        tab for tab in browser.get_tabs() if _is_detail_page_url(str(tab.url))
+    ]
     if not candidates:
         raise AutomationError("已连接 Chrome，但没有找到打开的得物“申请新品/编辑草稿”标签页")
     if len(candidates) > 1:
         raise AutomationError(
             f"找到 {len(candidates)} 个得物新品草稿标签页；请只保留本次要填写的一个页面"
         )
-    tab = candidates[0]
-    # DrissionPage 的键盘输入依赖当前激活标签页；连接到独立 Chrome 时，
-    # 得物草稿页可能只是后台标签，导致 click/input 无异常但页面值保持为空。
-    try:
-        tab.set.activate()
-    except Exception as error:
-        raise AutomationError("无法激活得物新品草稿标签页，请将该页面切到前台后重试") from error
-    return browser, tab
+    return browser, _activate_dewu_tab(candidates[0], "得物新品草稿标签页")
 
 
 def _chrome_start_command(port: int) -> str:
@@ -1774,8 +1807,9 @@ def main() -> int:
 
         result = RunResult(warnings=_effective_warnings(product, media))
         # 从这里开始才会产生浏览器外部副作用；异常会被转换为结构化结果返回。
-        _, tab = attach_to_dewu_tab(args.port)
-        result = DewuAutomation(tab, product, media, settings, result).run()
+        browser, start_tab = attach_to_dewu_start_tab(args.port)
+        detail_tab = DewuStartPage(browser, start_tab, media, settings, result).run()
+        result = DewuAutomation(detail_tab, product, media, settings, result).run()
         print(json.dumps(asdict(result), ensure_ascii=False, indent=2))
         return 0 if result.status in {"draft_saved", "filled_not_saved"} else 3
     except (ProductDataError, AutomationError) as error:
@@ -1943,6 +1977,7 @@ def _print_preflight(
         },
         "media": {
             "extraction_root": str(media.extraction_root),
+            "first_square": len(media.first_square),
             "carousel_colors": {color: len(paths) for color, paths in media.carousel_by_color.items()},
             "product_display_backs": len(media.product_display_backs),
             "details": len(media.details),

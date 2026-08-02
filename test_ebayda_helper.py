@@ -5,6 +5,7 @@ import io
 import unittest
 from collections.abc import Mapping
 from contextlib import redirect_stderr, redirect_stdout
+from pathlib import Path
 from types import MappingProxyType
 from typing import Any, get_type_hints
 from unittest.mock import patch
@@ -286,3 +287,16 @@ class CommandLineTests(unittest.TestCase):
             {"status": "failed", "error": "领取任务失败"},
         )
         self.assertNotIn("abcdefghijklmnop", error_output.getvalue())
+
+
+class InstallerContractTests(unittest.TestCase):
+    def test_inno_setup_registers_current_user_protocol(self) -> None:
+        script = (
+            Path(__file__).with_name("installer") / "EbaydaHelper.iss"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("PrivilegesRequired=lowest", script)
+        self.assertIn("Software\\Classes\\ebayda", script)
+        self.assertIn('ValueName: "URL Protocol"', script)
+        self.assertIn('ValueData: """{app}\\{#MyAppExeName}"" ""%1"""', script)
+        self.assertIn("Flags: uninsdeletekey", script)

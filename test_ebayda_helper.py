@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+import io
 import unittest
 from collections.abc import Mapping
+from contextlib import redirect_stderr, redirect_stdout
 from types import MappingProxyType
 from typing import Any, get_type_hints
 from unittest.mock import patch
@@ -246,3 +248,41 @@ class ClaimJobTests(unittest.TestCase):
             ) as caught:
                 ebayda_helper.claim_job(self.request, open_url)
             self.assertNotIn(ticket, str(caught.exception))
+
+
+class CommandLineTests(unittest.TestCase):
+    def test_success_prints_only_safe_claim_summary(self) -> None:
+        output = io.StringIO()
+        with patch.object(
+            ebayda_helper,
+            "claim_job",
+            return_value={"job_id": "job_1", "shop_id": "101", "action": "save_draft"},
+        ), redirect_stdout(output):
+            exit_code = ebayda_helper.main(
+                ["ebayda://run?job_id=job_1&ticket=abcdefghijklmnop"]
+            )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(
+            json.loads(output.getvalue()),
+            {"status": "claimed", "job_id": "job_1", "shop_id": "101"},
+        )
+        self.assertNotIn("abcdefghijklmnop", output.getvalue())
+
+    def test_failure_is_safe_and_does_not_echo_launch_url(self) -> None:
+        error_output = io.StringIO()
+        with patch.object(
+            ebayda_helper,
+            "claim_job",
+            side_effect=ebayda_helper.HelperError("领取任务失败"),
+        ), redirect_stderr(error_output):
+            exit_code = ebayda_helper.main(
+                ["ebayda://run?job_id=job_1&ticket=abcdefghijklmnop"]
+            )
+
+        self.assertEqual(exit_code, 2)
+        self.assertEqual(
+            json.loads(error_output.getvalue()),
+            {"status": "failed", "error": "领取任务失败"},
+        )
+        self.assertNotIn("abcdefghijklmnop", error_output.getvalue())

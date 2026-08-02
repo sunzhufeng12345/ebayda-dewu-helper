@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import argparse
 import json
 import re
+import sys
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
@@ -108,3 +110,36 @@ def claim_job(request: LaunchRequest, open_url=urlopen) -> Mapping[str, Any]:
     if not JOB_ID_PATTERN.fullmatch(shop_id):
         raise HelperError("领取任务失败：shop_id 格式错误")
     return payload
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Ebayda 得物自动上架本地助手")
+    parser.add_argument("launch_url", help="网站生成的 ebayda:// 启动地址")
+    args = parser.parse_args(argv)
+
+    try:
+        launch = parse_launch_url(args.launch_url)
+        payload = claim_job(launch)
+        print(
+            json.dumps(
+                {
+                    "status": "claimed",
+                    "job_id": launch.job_id,
+                    "shop_id": str(payload["shop_id"]),
+                },
+                ensure_ascii=False,
+            ),
+            flush=True,
+        )
+        return 0
+    except HelperError as error:
+        print(
+            json.dumps({"status": "failed", "error": str(error)}, ensure_ascii=False),
+            file=sys.stderr,
+            flush=True,
+        )
+        return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

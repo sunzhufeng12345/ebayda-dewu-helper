@@ -26,6 +26,12 @@ class LaunchUrlTests(unittest.TestCase):
             with self.subTest(value=value), self.assertRaises(ebayda_helper.HelperError):
                 ebayda_helper.parse_launch_url(value)
 
+    def test_malformed_url_is_rejected_with_helper_error(self) -> None:
+        with self.assertRaises(ebayda_helper.HelperError):
+            ebayda_helper.parse_launch_url(
+                "ebayda://run／evil?job_id=job_1&ticket=abcdefghijklmnop"
+            )
+
     def test_missing_duplicate_unknown_or_unsafe_parameters_are_rejected(self) -> None:
         invalid_urls = (
             "ebayda://run?job_id=job_1",

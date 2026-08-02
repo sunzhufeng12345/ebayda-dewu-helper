@@ -23,7 +23,10 @@ def parse_launch_url(value: str) -> LaunchRequest:
     if not value or len(value) > MAX_LAUNCH_URL_LENGTH:
         raise HelperError("启动地址为空或过长")
 
-    parsed = urlparse(value)
+    try:
+        parsed = urlparse(value)
+    except ValueError as error:
+        raise HelperError("启动地址格式错误") from error
     if (
         parsed.scheme.casefold() != "ebayda"
         or parsed.netloc.casefold() != "run"

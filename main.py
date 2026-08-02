@@ -426,7 +426,7 @@ class DewuStartPage:
         raise AutomationError(message)
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     # 命令行只负责收集参数；文件存在性和数值范围在主流程中统一校验。
     parser = argparse.ArgumentParser(
         description="读取选品中心 JSON 和图片 ZIP，填写得物新品页面并仅保存草稿。",
@@ -461,7 +461,7 @@ def parse_args() -> argparse.Namespace:
         help="跳过尺码表，仅用于暂不确定尺码表逻辑时继续调试后续步骤",
     )
     parser.add_argument("--timeout", type=float, default=12.0, help="普通页面操作超时秒数")
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
 class DewuAutomation:
@@ -1883,9 +1883,9 @@ def _chrome_start_command(port: int) -> str:
     )
 
 
-def main() -> int:
+def main(argv: Sequence[str] | None = None) -> int:
     # 主入口先完成无浏览器的数据预检；只有传入 --execute 才连接 Chrome。
-    args = parse_args()
+    args = parse_args(argv)
     script_dir = Path(__file__).resolve().parent
     result: RunResult | None = None
     try:

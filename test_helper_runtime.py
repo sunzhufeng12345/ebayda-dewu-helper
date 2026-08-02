@@ -299,5 +299,45 @@ class ChromeRuntimeTests(unittest.TestCase):
                 )
 
 
+class AutomationRunnerTests(unittest.TestCase):
+    def test_main_accepts_explicit_arguments(self) -> None:
+        args = helper_runtime.dewu_main.parse_args(["--skip-size-chart"])
+
+        self.assertTrue(args.skip_size_chart)
+
+    def test_runner_passes_downloads_port_and_save_mode(self) -> None:
+        files = helper_runtime.TaskFiles(
+            json_path=Path("job/product.json"),
+            images_path=Path("job/images.zip"),
+            work_dir=Path("job/work"),
+        )
+        calls: list[list[str]] = []
+
+        exit_code = helper_runtime.run_automation(
+            files,
+            17321,
+            runner=lambda argv: calls.append(list(argv)) or 0,
+        )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(
+            calls,
+            [
+                [
+                    "--json",
+                    str(files.json_path),
+                    "--images",
+                    str(files.images_path),
+                    "--work-dir",
+                    str(files.work_dir),
+                    "--port",
+                    "17321",
+                    "--execute",
+                ]
+            ],
+        )
+        self.assertNotIn("--no-save", calls[0])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -193,6 +193,26 @@ def ensure_chrome(
     raise TaskExecutionError("Chrome 启动超时，请关闭该店铺的旧自动化窗口后重试")
 
 
+def run_automation(
+    files: TaskFiles,
+    port: int,
+    *,
+    runner: Callable[[Sequence[str]], int] = dewu_main.main,
+) -> int:
+    arguments = [
+        "--json",
+        str(files.json_path),
+        "--images",
+        str(files.images_path),
+        "--work-dir",
+        str(files.work_dir),
+        "--port",
+        str(port),
+        "--execute",
+    ]
+    return runner(arguments)
+
+
 def _read_devtools_port(path: Path) -> int | None:
     try:
         first_line = path.read_text(encoding="utf-8").splitlines()[0]

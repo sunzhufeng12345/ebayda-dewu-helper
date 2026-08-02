@@ -556,7 +556,11 @@ def _build_skus(
         if not product_code:
             raise ProductDataError(f"SKU {color}/{size} 缺少 code")
 
-        source_price = _decimal(row.get("price", 0), f"SKU {color}/{size} price")
+        raw_source_price = row.get("price")
+        source_price = _decimal(
+            0 if raw_source_price in (None, "") else raw_source_price,
+            f"SKU {color}/{size} price",
+        )
         # 来源 SKU price 只保留作诊断；页面上的每条 SKU 始终填写完整吊牌价。
         offer_amount = release_price
         inventory_value = _decimal(row.get("stock", 0), f"SKU {color}/{size} stock")

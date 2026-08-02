@@ -79,19 +79,30 @@ class ClaimJobTests(unittest.TestCase):
             job_id="job_abc-123", ticket="super-secret-ticket"
         )
 
+    def complete_payload(self, **updates: object) -> dict[str, object]:
+        job_id = str(updates.get("job_id") or self.request.job_id)
+        payload: dict[str, object] = {
+            "job_id": job_id,
+            "action": "save_draft",
+            "shop_id": "shop_123",
+            "job_token": "abcdefghijklmnop",
+            "product_json_url": (
+                f"https://www.ebayda.com/api/automation/jobs/{job_id}/product-json"
+            ),
+            "images_zip_url": (
+                f"https://www.ebayda.com/api/automation/jobs/{job_id}/images"
+            ),
+        }
+        payload.update(updates)
+        return payload
+
     def claim_payload(self, payload: object) -> object:
         response = self.Response(json.dumps(payload).encode("utf-8"))
         return ebayda_helper.claim_job(self.request, lambda *args, **kwargs: response)
 
     def test_posts_claim_request_and_returns_valid_payload(self) -> None:
-        request = ebayda_helper.LaunchRequest(
-            job_id="job/with space", ticket="super-secret-ticket"
-        )
-        payload = {
-            "job_id": request.job_id,
-            "action": "save_draft",
-            "shop_id": "shop_123",
-        }
+        request = self.request
+        payload = self.complete_payload()
         response = self.Response(json.dumps(payload).encode("utf-8"))
         call: dict[str, object] = {}
 
@@ -108,7 +119,7 @@ class ClaimJobTests(unittest.TestCase):
         }
         self.assertEqual(
             http_request.full_url,
-            "https://www.ebayda.com/api/automation/jobs/job%2Fwith%20space/claim",
+            "https://www.ebayda.com/api/automation/jobs/job_abc-123/claim",
         )
         self.assertEqual(http_request.get_method(), "POST")
         self.assertEqual(http_request.data, b"")
@@ -125,11 +136,7 @@ class ClaimJobTests(unittest.TestCase):
         self.assertEqual(result, payload)
 
     def test_rejects_non_200_response_before_reading(self) -> None:
-        payload = {
-            "job_id": self.request.job_id,
-            "action": "save_draft",
-            "shop_id": "shop_123",
-        }
+        payload = self.complete_payload()
         response = self.Response(json.dumps(payload).encode("utf-8"), status=503)
 
         with self.assertRaisesRegex(
@@ -148,13 +155,7 @@ class ClaimJobTests(unittest.TestCase):
         )
 
     def test_accepts_mapping_payload(self) -> None:
-        payload = MappingProxyType(
-            {
-                "job_id": self.request.job_id,
-                "action": "save_draft",
-                "shop_id": "shop_123",
-            }
-        )
+        payload = MappingProxyType(self.complete_payload())
         response = self.Response(b"{}")
 
         with patch.object(ebayda_helper.json, "loads", return_value=payload):
@@ -166,16 +167,8 @@ class ClaimJobTests(unittest.TestCase):
 
     def test_rejects_mismatched_job_action_and_non_object_payloads(self) -> None:
         invalid_payloads = (
-            {
-                "job_id": "another_job",
-                "action": "save_draft",
-                "shop_id": "shop_123",
-            },
-            {
-                "job_id": self.request.job_id,
-                "action": "submit",
-                "shop_id": "shop_123",
-            },
+            self.complete_payload(job_id="another_job"),
+            self.complete_payload(action="submit"),
             [self.request.job_id, "save_draft", "shop_123"],
         )
 
@@ -187,24 +180,19 @@ class ClaimJobTests(unittest.TestCase):
 
     def test_rejects_invalid_shop_id(self) -> None:
         with self.assertRaises(ebayda_helper.HelperError):
-            self.claim_payload(
-                {
-                    "job_id": self.request.job_id,
-                    "action": "save_draft",
-                    "shop_id": "../shop",
-                }
-            )
+            self.claim_payload(self.complete_payload(shop_id="../shop"))
 
     def test_accepts_numeric_shop_id_without_changing_payload(self) -> None:
-        result = self.claim_payload(
-            {
-                "job_id": self.request.job_id,
-                "action": "save_draft",
-                "shop_id": 101,
-            }
-        )
+        result = self.claim_payload(self.complete_payload(shop_id=101))
 
         self.assertEqual(result["shop_id"], 101)
+
+    def test_rejects_incomplete_execution_payload(self) -> None:
+        payload = self.complete_payload()
+        del payload["job_token"]
+
+        with self.assertRaises(ebayda_helper.HelperError):
+            self.claim_payload(payload)
 
     def test_rejects_oversized_or_malformed_responses(self) -> None:
         invalid_bodies = (

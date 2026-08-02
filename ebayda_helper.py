@@ -11,6 +11,8 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, quote, urlparse
 from urllib.request import Request, urlopen
 
+from helper_runtime import ClaimedJob, TaskExecutionError
+
 
 API_ORIGIN = "https://www.ebayda.com"
 CLAIM_TIMEOUT_SECONDS = 10
@@ -109,6 +111,10 @@ def claim_job(request: LaunchRequest, open_url=urlopen) -> Mapping[str, Any]:
     shop_id = str(payload.get("shop_id") or "")
     if not JOB_ID_PATTERN.fullmatch(shop_id):
         raise HelperError("领取任务失败：shop_id 格式错误")
+    try:
+        ClaimedJob.from_payload(payload)
+    except TaskExecutionError as error:
+        raise HelperError(str(error)) from None
     return payload
 
 

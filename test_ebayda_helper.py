@@ -2,6 +2,10 @@ from __future__ import annotations
 
 import json
 import unittest
+from collections.abc import Mapping
+from types import MappingProxyType
+from typing import Any, get_type_hints
+from unittest.mock import patch
 from urllib.error import HTTPError, URLError
 
 import ebayda_helper
@@ -51,8 +55,9 @@ class LaunchUrlTests(unittest.TestCase):
 
 class ClaimJobTests(unittest.TestCase):
     class Response:
-        def __init__(self, body: bytes) -> None:
+        def __init__(self, body: bytes, status: int = 200) -> None:
             self.body = body
+            self.status = status
             self.read_limit: int | None = None
             self.closed = False
 
@@ -116,6 +121,46 @@ class ClaimJobTests(unittest.TestCase):
         self.assertTrue(response.closed)
         self.assertEqual(result, payload)
 
+    def test_rejects_non_200_response_before_reading(self) -> None:
+        payload = {
+            "job_id": self.request.job_id,
+            "action": "save_draft",
+            "shop_id": "shop_123",
+        }
+        response = self.Response(json.dumps(payload).encode("utf-8"), status=503)
+
+        with self.assertRaisesRegex(
+            ebayda_helper.HelperError, "^领取任务失败：HTTP 503$"
+        ):
+            ebayda_helper.claim_job(
+                self.request, lambda *args, **kwargs: response
+            )
+
+        self.assertIsNone(response.read_limit)
+        self.assertTrue(response.closed)
+
+    def test_return_annotation_is_mapping(self) -> None:
+        self.assertEqual(
+            get_type_hints(ebayda_helper.claim_job)["return"], Mapping[str, Any]
+        )
+
+    def test_accepts_mapping_payload(self) -> None:
+        payload = MappingProxyType(
+            {
+                "job_id": self.request.job_id,
+                "action": "save_draft",
+                "shop_id": "shop_123",
+            }
+        )
+        response = self.Response(b"{}")
+
+        with patch.object(ebayda_helper.json, "loads", return_value=payload):
+            result = ebayda_helper.claim_job(
+                self.request, lambda *args, **kwargs: response
+            )
+
+        self.assertIs(result, payload)
+
     def test_rejects_mismatched_job_action_and_non_object_payloads(self) -> None:
         invalid_payloads = (
             {
@@ -146,6 +191,17 @@ class ClaimJobTests(unittest.TestCase):
                     "shop_id": "../shop",
                 }
             )
+
+    def test_accepts_numeric_shop_id_without_changing_payload(self) -> None:
+        result = self.claim_payload(
+            {
+                "job_id": self.request.job_id,
+                "action": "save_draft",
+                "shop_id": 101,
+            }
+        )
+
+        self.assertEqual(result["shop_id"], 101)
 
     def test_rejects_oversized_or_malformed_responses(self) -> None:
         invalid_bodies = (

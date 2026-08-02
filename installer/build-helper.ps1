@@ -3,6 +3,7 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 
 Push-Location $repoRoot
 try {
+    python -m PyInstaller --version | Out-Null
     python -m PyInstaller --noconfirm --clean --onefile --name EbaydaHelper ebayda_helper.py
 
     $iscc = @(

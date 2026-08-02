@@ -11,11 +11,20 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, quote, urlparse
 from urllib.request import Request, urlopen
 
-from helper_runtime import ClaimedJob, TaskExecutionError
+from helper_runtime import (
+    ClaimedJob,
+    TaskExecutionError,
+    application_root,
+    ensure_chrome,
+    prepare_job_files,
+    run_automation,
+    shop_profile,
+)
 
 
 API_ORIGIN = "https://www.ebayda.com"
 CLAIM_TIMEOUT_SECONDS = 10
+EVENT_TIMEOUT_SECONDS = 10
 MAX_CLAIM_RESPONSE_BYTES = 1024 * 1024
 MAX_LAUNCH_URL_LENGTH = 4_096
 JOB_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
@@ -118,6 +127,85 @@ def claim_job(request: LaunchRequest, open_url=urlopen) -> Mapping[str, Any]:
     return payload
 
 
+def post_event(
+    job: ClaimedJob,
+    status: str,
+    *,
+    open_url=urlopen,
+) -> None:
+    if status not in {
+        "preparing",
+        "running",
+        "draft_saved",
+        "paused_for_user",
+        "failed",
+    }:
+        raise HelperError("不支持的任务状态")
+    body = json.dumps(
+        {"status": status},
+        ensure_ascii=False,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    request = Request(
+        f"{API_ORIGIN}/api/automation/jobs/{quote(job.job_id, safe='')}/events",
+        data=body,
+        headers={
+            "Accept": "application/json",
+            "Authorization": f"JobToken {job.job_token}",
+            "Content-Type": "application/json; charset=utf-8",
+            "User-Agent": "EbaydaHelper/0.2",
+        },
+        method="POST",
+    )
+    try:
+        with open_url(request, timeout=EVENT_TIMEOUT_SECONDS) as response:
+            if not 200 <= getattr(response, "status", 0) < 300:
+                raise HelperError(f"回传任务状态失败：HTTP {response.status}")
+            response.read(4_097)
+    except HTTPError as error:
+        raise HelperError(f"回传任务状态失败：HTTP {error.code}") from None
+    except (URLError, TimeoutError, OSError):
+        raise HelperError("回传任务状态失败：网络错误") from None
+
+
+def execute_claimed_job(payload: Mapping[str, Any]) -> tuple[str, str, str]:
+    try:
+        job = ClaimedJob.from_payload(payload)
+    except TaskExecutionError as error:
+        raise HelperError(str(error)) from None
+
+    try:
+        app_root = application_root()
+        post_event(job, "preparing")
+        files = prepare_job_files(job, app_root)
+        profile = shop_profile(app_root, job.shop_id)
+        port = ensure_chrome(profile)
+        post_event(job, "running")
+        exit_code = run_automation(files, port)
+    except (HelperError, TaskExecutionError) as error:
+        _post_final_event(job, "failed")
+        raise HelperError(str(error)) from None
+    except Exception:
+        _post_final_event(job, "failed")
+        raise HelperError("本地自动化执行失败") from None
+
+    if exit_code == 0:
+        status = "draft_saved"
+    elif exit_code in {2, 130}:
+        status = "paused_for_user"
+    else:
+        status = "failed"
+    _post_final_event(job, status)
+    return status, job.job_id, job.shop_id
+
+
+def _post_final_event(job: ClaimedJob, status: str) -> None:
+    try:
+        post_event(job, status)
+    except HelperError:
+        pass
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Ebayda 得物自动上架本地助手")
     parser.add_argument("launch_url", help="网站生成的 ebayda:// 启动地址")
@@ -126,18 +214,6 @@ def main(argv: list[str] | None = None) -> int:
     try:
         launch = parse_launch_url(args.launch_url)
         payload = claim_job(launch)
-        print(
-            json.dumps(
-                {
-                    "status": "claimed",
-                    "job_id": launch.job_id,
-                    "shop_id": str(payload["shop_id"]),
-                },
-                ensure_ascii=False,
-            ),
-            flush=True,
-        )
-        return 0
     except HelperError as error:
         print(
             json.dumps({"status": "failed", "error": str(error)}, ensure_ascii=False),
@@ -145,6 +221,29 @@ def main(argv: list[str] | None = None) -> int:
             flush=True,
         )
         return 2
+
+    try:
+        status, job_id, shop_id = execute_claimed_job(payload)
+    except HelperError as error:
+        print(
+            json.dumps({"status": "failed", "error": str(error)}, ensure_ascii=False),
+            file=sys.stderr,
+            flush=True,
+        )
+        return 3
+
+    print(
+        json.dumps(
+            {"status": status, "job_id": job_id, "shop_id": shop_id},
+            ensure_ascii=False,
+        ),
+        flush=True,
+    )
+    if status == "draft_saved":
+        return 0
+    if status == "paused_for_user":
+        return 2
+    return 3
 
 
 if __name__ == "__main__":

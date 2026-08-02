@@ -12,6 +12,7 @@ from unittest.mock import patch
 from urllib.error import HTTPError, URLError
 
 import ebayda_helper
+import helper_runtime
 
 
 class LaunchUrlTests(unittest.TestCase):
@@ -240,12 +241,16 @@ class ClaimJobTests(unittest.TestCase):
 
 
 class CommandLineTests(unittest.TestCase):
-    def test_success_prints_only_safe_claim_summary(self) -> None:
+    def test_success_prints_only_safe_execution_summary(self) -> None:
         output = io.StringIO()
         with patch.object(
             ebayda_helper,
             "claim_job",
             return_value={"job_id": "job_1", "shop_id": "101", "action": "save_draft"},
+        ), patch.object(
+            ebayda_helper,
+            "execute_claimed_job",
+            return_value=("draft_saved", "job_1", "101"),
         ), redirect_stdout(output):
             exit_code = ebayda_helper.main(
                 ["ebayda://run?job_id=job_1&ticket=abcdefghijklmnop"]
@@ -254,7 +259,7 @@ class CommandLineTests(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         self.assertEqual(
             json.loads(output.getvalue()),
-            {"status": "claimed", "job_id": "job_1", "shop_id": "101"},
+            {"status": "draft_saved", "job_id": "job_1", "shop_id": "101"},
         )
         self.assertNotIn("abcdefghijklmnop", output.getvalue())
 
@@ -276,6 +281,179 @@ class CommandLineTests(unittest.TestCase):
         )
         self.assertNotIn("abcdefghijklmnop", error_output.getvalue())
 
+    def test_paused_execution_returns_two(self) -> None:
+        output = io.StringIO()
+        with patch.object(ebayda_helper, "claim_job", return_value={}), patch.object(
+            ebayda_helper,
+            "execute_claimed_job",
+            return_value=("paused_for_user", "job_1", "101"),
+        ), redirect_stdout(output):
+            exit_code = ebayda_helper.main(
+                ["ebayda://run?job_id=job_1&ticket=abcdefghijklmnop"]
+            )
+
+        self.assertEqual(exit_code, 2)
+        self.assertEqual(json.loads(output.getvalue())["status"], "paused_for_user")
+
+
+class _EventResponse:
+    status = 204
+
+    def __enter__(self) -> "_EventResponse":
+        return self
+
+    def __exit__(self, *_args: object) -> None:
+        return None
+
+    def read(self, _size: int = -1) -> bytes:
+        return b""
+
+
+class EventTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.payload: dict[str, object] = {
+            "job_id": "job_1",
+            "shop_id": "101",
+            "action": "save_draft",
+            "job_token": "abcdefghijklmnop",
+            "product_json_url": (
+                "https://www.ebayda.com/api/automation/jobs/job_1/product-json"
+            ),
+            "images_zip_url": (
+                "https://www.ebayda.com/api/automation/jobs/job_1/images"
+            ),
+        }
+        self.job = helper_runtime.ClaimedJob.from_payload(self.payload)
+
+    def test_event_posts_safe_json_with_job_authorization(self) -> None:
+        captured: list[tuple[object, int]] = []
+
+        def open_url(request: object, *, timeout: int) -> _EventResponse:
+            captured.append((request, timeout))
+            return _EventResponse()
+
+        ebayda_helper.post_event(self.job, "running", open_url=open_url)
+
+        request, timeout = captured[0]
+        headers = {name.casefold(): value for name, value in request.header_items()}
+        self.assertEqual(
+            request.full_url,
+            "https://www.ebayda.com/api/automation/jobs/job_1/events",
+        )
+        self.assertEqual(request.get_method(), "POST")
+        self.assertEqual(json.loads(request.data), {"status": "running"})
+        self.assertEqual(headers["authorization"], "JobToken abcdefghijklmnop")
+        self.assertEqual(headers["content-type"], "application/json; charset=utf-8")
+        self.assertEqual(timeout, ebayda_helper.EVENT_TIMEOUT_SECONDS)
+
+    def test_execution_emits_stages_in_order(self) -> None:
+        calls: list[str] = []
+        files = helper_runtime.TaskFiles(Path("product.json"), Path("images.zip"), Path("work"))
+
+        with patch.object(
+            ebayda_helper, "application_root", return_value=Path("app")
+        ), patch.object(
+            ebayda_helper,
+            "post_event",
+            side_effect=lambda _job, status: calls.append(status),
+        ), patch.object(
+            ebayda_helper,
+            "prepare_job_files",
+            side_effect=lambda *_args: calls.append("download") or files,
+        ), patch.object(
+            ebayda_helper,
+            "shop_profile",
+            side_effect=lambda *_args: calls.append("profile") or Path("profile"),
+        ), patch.object(
+            ebayda_helper,
+            "ensure_chrome",
+            side_effect=lambda *_args: calls.append("chrome") or 17321,
+        ), patch.object(
+            ebayda_helper,
+            "run_automation",
+            side_effect=lambda *_args: calls.append("automation") or 0,
+        ):
+            result = ebayda_helper.execute_claimed_job(self.payload)
+
+        self.assertEqual(result, ("draft_saved", "job_1", "101"))
+        self.assertEqual(
+            calls,
+            [
+                "preparing",
+                "download",
+                "profile",
+                "chrome",
+                "running",
+                "automation",
+                "draft_saved",
+            ],
+        )
+
+    def test_automation_exit_codes_map_to_public_statuses(self) -> None:
+        expected = {
+            0: "draft_saved",
+            2: "paused_for_user",
+            130: "paused_for_user",
+            4: "failed",
+        }
+        files = helper_runtime.TaskFiles(Path("product.json"), Path("images.zip"), Path("work"))
+
+        for exit_code, status in expected.items():
+            with self.subTest(exit_code=exit_code), patch.object(
+                ebayda_helper, "application_root", return_value=Path("app")
+            ), patch.object(ebayda_helper, "post_event"), patch.object(
+                ebayda_helper, "prepare_job_files", return_value=files
+            ), patch.object(
+                ebayda_helper, "shop_profile", return_value=Path("profile")
+            ), patch.object(
+                ebayda_helper, "ensure_chrome", return_value=17321
+            ), patch.object(
+                ebayda_helper, "run_automation", return_value=exit_code
+            ):
+                result = ebayda_helper.execute_claimed_job(self.payload)
+
+            self.assertEqual(result[0], status)
+
+    def test_pre_browser_failure_reports_failed(self) -> None:
+        events: list[str] = []
+        with patch.object(
+            ebayda_helper, "application_root", return_value=Path("app")
+        ), patch.object(
+            ebayda_helper,
+            "post_event",
+            side_effect=lambda _job, status: events.append(status),
+        ), patch.object(
+            ebayda_helper,
+            "prepare_job_files",
+            side_effect=helper_runtime.TaskExecutionError("下载失败"),
+        ), patch.object(ebayda_helper, "ensure_chrome") as chrome:
+            with self.assertRaises(ebayda_helper.HelperError):
+                ebayda_helper.execute_claimed_job(self.payload)
+
+        chrome.assert_not_called()
+        self.assertEqual(events, ["preparing", "failed"])
+
+    def test_final_event_failure_does_not_change_saved_result(self) -> None:
+        files = helper_runtime.TaskFiles(Path("product.json"), Path("images.zip"), Path("work"))
+
+        def post_event(_job: object, status: str) -> None:
+            if status == "draft_saved":
+                raise ebayda_helper.HelperError("回传失败")
+
+        with patch.object(
+            ebayda_helper, "application_root", return_value=Path("app")
+        ), patch.object(ebayda_helper, "post_event", side_effect=post_event), patch.object(
+            ebayda_helper, "prepare_job_files", return_value=files
+        ), patch.object(
+            ebayda_helper, "shop_profile", return_value=Path("profile")
+        ), patch.object(
+            ebayda_helper, "ensure_chrome", return_value=17321
+        ), patch.object(ebayda_helper, "run_automation", return_value=0) as runner:
+            result = ebayda_helper.execute_claimed_job(self.payload)
+
+        self.assertEqual(result[0], "draft_saved")
+        runner.assert_called_once()
+
 
 class InstallerContractTests(unittest.TestCase):
     def test_inno_setup_registers_current_user_protocol(self) -> None:
@@ -288,3 +466,8 @@ class InstallerContractTests(unittest.TestCase):
         self.assertIn('ValueName: "URL Protocol"', script)
         self.assertIn('ValueData: """{app}\\{#MyAppExeName}"" ""%1"""', script)
         self.assertIn("Flags: uninsdeletekey", script)
+
+        build_script = (
+            Path(__file__).with_name("installer") / "build-helper.ps1"
+        ).read_text(encoding="utf-8")
+        self.assertIn("python -m PyInstaller --version | Out-Null", build_script)

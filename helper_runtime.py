@@ -7,7 +7,7 @@ import subprocess
 import sys
 import time
 from collections.abc import Callable, Mapping
-from contextlib import contextmanager
+from contextlib import contextmanager, redirect_stderr, redirect_stdout
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterator, Sequence
@@ -238,7 +238,10 @@ def run_automation(
         str(port),
         "--execute",
     ]
-    return runner(arguments)
+    with open(os.devnull, "w", encoding="utf-8") as sink, redirect_stdout(
+        sink
+    ), redirect_stderr(sink):
+        return runner(arguments)
 
 
 def _read_devtools_port(path: Path) -> int | None:

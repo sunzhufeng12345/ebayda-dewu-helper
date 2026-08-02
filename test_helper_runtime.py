@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import io
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from inspect import signature
 from pathlib import Path
@@ -437,6 +439,27 @@ class AutomationRunnerTests(unittest.TestCase):
             ],
         )
         self.assertNotIn("--no-save", calls[0])
+
+    def test_runner_output_is_suppressed(self) -> None:
+        files = helper_runtime.TaskFiles(
+            json_path=Path("job/product.json"),
+            images_path=Path("job/images.zip"),
+            work_dir=Path("job/work"),
+        )
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+
+        def noisy_runner(_argv: object) -> int:
+            print("private product summary")
+            print("private local path", file=sys.stderr)
+            return 0
+
+        with redirect_stdout(stdout), redirect_stderr(stderr):
+            exit_code = helper_runtime.run_automation(files, 17321, runner=noisy_runner)
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(stdout.getvalue(), "")
+        self.assertEqual(stderr.getvalue(), "")
 
 
 if __name__ == "__main__":

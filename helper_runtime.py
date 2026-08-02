@@ -1,13 +1,20 @@
 from __future__ import annotations
 
+import os
 import re
+import socket
+import subprocess
+import sys
+import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
+
+import main as dewu_main
 
 
 DOWNLOAD_TIMEOUT_SECONDS = 120
@@ -95,6 +102,112 @@ def prepare_job_files(
         open_url,
     )
     return TaskFiles(json_path=json_path, images_path=images_path, work_dir=work_dir)
+
+
+def application_root() -> Path:
+    if sys.platform == "win32":
+        local_app_data = os.environ.get("LOCALAPPDATA")
+        if not local_app_data:
+            raise TaskExecutionError("无法确定 Windows 本地应用数据目录")
+        return Path(local_app_data) / "EbaydaHelper"
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Application Support" / "EbaydaHelper"
+    data_home = os.environ.get("XDG_DATA_HOME")
+    return Path(data_home) / "EbaydaHelper" if data_home else Path.home() / ".local" / "share" / "EbaydaHelper"
+
+
+def shop_profile(app_root: Path, shop_id: str) -> Path:
+    if not SAFE_ID_PATTERN.fullmatch(shop_id):
+        raise TaskExecutionError("无法创建店铺 Profile：shop_id 格式错误")
+    return app_root / "profiles" / shop_id
+
+
+def find_chrome_executable(candidates: Sequence[Path] | None = None) -> Path:
+    if candidates is None:
+        if sys.platform == "win32":
+            roots = (
+                os.environ.get("PROGRAMFILES"),
+                os.environ.get("PROGRAMFILES(X86)"),
+                os.environ.get("LOCALAPPDATA"),
+            )
+            candidates = tuple(
+                Path(root) / "Google" / "Chrome" / "Application" / "chrome.exe"
+                for root in roots
+                if root
+            )
+        elif sys.platform == "darwin":
+            candidates = (
+                Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
+            )
+        else:
+            candidates = (
+                Path("/usr/bin/google-chrome"),
+                Path("/usr/bin/google-chrome-stable"),
+                Path("/usr/bin/chromium"),
+            )
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    raise TaskExecutionError("未找到 Google Chrome，请先安装后重试")
+
+
+def ensure_chrome(
+    profile_dir: Path,
+    *,
+    chrome_executable: Path | None = None,
+    popen: Callable[[list[str]], Any] = subprocess.Popen,
+    port_is_open: Callable[[int], bool] | None = None,
+    sleep: Callable[[float], None] = time.sleep,
+    timeout: float = 20,
+) -> int:
+    profile_dir.mkdir(parents=True, exist_ok=True)
+    active_port_file = profile_dir / "DevToolsActivePort"
+    is_open = port_is_open or _port_is_open
+    existing_port = _read_devtools_port(active_port_file)
+    if existing_port is not None and is_open(existing_port):
+        return existing_port
+
+    active_port_file.unlink(missing_ok=True)
+    chrome = chrome_executable or find_chrome_executable()
+    command = [
+        str(chrome),
+        "--remote-debugging-port=0",
+        f"--user-data-dir={profile_dir}",
+        "--no-first-run",
+        "--no-default-browser-check",
+        dewu_main.START_PAGE_URL,
+    ]
+    try:
+        popen(command)
+    except OSError:
+        raise TaskExecutionError("无法启动 Google Chrome") from None
+
+    deadline = time.monotonic() + timeout
+    while True:
+        port = _read_devtools_port(active_port_file)
+        if port is not None and is_open(port):
+            return port
+        if time.monotonic() >= deadline:
+            break
+        sleep(0.1)
+    raise TaskExecutionError("Chrome 启动超时，请关闭该店铺的旧自动化窗口后重试")
+
+
+def _read_devtools_port(path: Path) -> int | None:
+    try:
+        first_line = path.read_text(encoding="utf-8").splitlines()[0]
+        port = int(first_line)
+    except (FileNotFoundError, IndexError, OSError, UnicodeError, ValueError):
+        return None
+    return port if 1 <= port <= 65_535 else None
+
+
+def _port_is_open(port: int) -> bool:
+    try:
+        with socket.create_connection(("127.0.0.1", port), timeout=0.5):
+            return True
+    except OSError:
+        return False
 
 
 def _valid_token(value: str) -> bool:

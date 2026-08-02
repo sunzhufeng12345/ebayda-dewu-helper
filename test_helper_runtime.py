@@ -3,6 +3,7 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 from urllib.error import URLError
 
 import helper_runtime
@@ -191,6 +192,111 @@ class DownloadTests(unittest.TestCase):
             self.assertFalse(
                 (root / "jobs" / job.job_id / "product.json.part").exists()
             )
+
+
+class ChromeRuntimeTests(unittest.TestCase):
+    def test_shop_profile_is_under_application_data(self) -> None:
+        root = Path("C:/data/EbaydaHelper")
+
+        self.assertEqual(
+            helper_runtime.shop_profile(root, "101"),
+            root / "profiles" / "101",
+        )
+
+    def test_application_root_uses_local_app_data_on_windows(self) -> None:
+        with patch.object(helper_runtime.sys, "platform", "win32"), patch.dict(
+            helper_runtime.os.environ,
+            {"LOCALAPPDATA": "C:/Users/test/AppData/Local"},
+            clear=False,
+        ):
+            self.assertEqual(
+                helper_runtime.application_root(),
+                Path("C:/Users/test/AppData/Local") / "EbaydaHelper",
+            )
+
+    def test_existing_live_devtools_port_is_reused(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            profile = Path(directory)
+            (profile / "DevToolsActivePort").write_text(
+                "17321\n/devtools/browser/id\n", encoding="utf-8"
+            )
+
+            port = helper_runtime.ensure_chrome(
+                profile,
+                chrome_executable=Path("unused-chrome"),
+                popen=lambda _command: self.fail("不应重复启动 Chrome"),
+                port_is_open=lambda value: value == 17321,
+                sleep=lambda _seconds: None,
+            )
+
+        self.assertEqual(port, 17321)
+
+    def test_chrome_uses_non_default_profile_and_ephemeral_debug_port(self) -> None:
+        commands: list[list[str]] = []
+        with tempfile.TemporaryDirectory() as directory:
+            profile = Path(directory) / "profiles" / "101"
+
+            def popen(command: list[str]) -> object:
+                commands.append(command)
+                (profile / "DevToolsActivePort").write_text(
+                    "17321\n/devtools/browser/id\n", encoding="utf-8"
+                )
+                return object()
+
+            port = helper_runtime.ensure_chrome(
+                profile,
+                chrome_executable=Path(
+                    "C:/Program Files/Google/Chrome/Application/chrome.exe"
+                ),
+                popen=popen,
+                port_is_open=lambda value: value == 17321,
+                sleep=lambda _seconds: None,
+            )
+
+        self.assertEqual(port, 17321)
+        self.assertEqual(len(commands), 1)
+        self.assertIn(f"--user-data-dir={profile}", commands[0])
+        self.assertIn("--remote-debugging-port=0", commands[0])
+        self.assertIn("--no-first-run", commands[0])
+        self.assertIn(helper_runtime.dewu_main.START_PAGE_URL, commands[0])
+
+    def test_invalid_active_port_is_replaced_after_launch(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            profile = Path(directory)
+            active_port = profile / "DevToolsActivePort"
+            active_port.write_text("not-a-port\n", encoding="utf-8")
+
+            def popen(_command: list[str]) -> object:
+                active_port.write_text("17322\n", encoding="utf-8")
+                return object()
+
+            port = helper_runtime.ensure_chrome(
+                profile,
+                chrome_executable=Path("chrome.exe"),
+                popen=popen,
+                port_is_open=lambda value: value == 17322,
+                sleep=lambda _seconds: None,
+            )
+
+        self.assertEqual(port, 17322)
+
+    def test_missing_chrome_and_startup_timeout_are_reported(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with self.assertRaises(helper_runtime.TaskExecutionError):
+                helper_runtime.find_chrome_executable([root / "missing.exe"])
+
+            chrome = root / "chrome.exe"
+            chrome.write_bytes(b"")
+            with self.assertRaises(helper_runtime.TaskExecutionError):
+                helper_runtime.ensure_chrome(
+                    root / "profile",
+                    chrome_executable=chrome,
+                    popen=lambda _command: object(),
+                    port_is_open=lambda _value: False,
+                    sleep=lambda _seconds: None,
+                    timeout=0,
+                )
 
 
 if __name__ == "__main__":

@@ -9,13 +9,14 @@ from dataclasses import dataclass
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, quote, urlparse
-from urllib.request import Request, urlopen
+from urllib.request import Request
 
 from helper_runtime import (
     ClaimedJob,
     TaskExecutionError,
     application_root,
     ensure_chrome,
+    open_no_redirect,
     prepare_job_files,
     run_automation,
     shop_profile,
@@ -77,7 +78,7 @@ def parse_launch_url(value: str) -> LaunchRequest:
     return LaunchRequest(job_id=job_id, ticket=ticket)
 
 
-def claim_job(request: LaunchRequest, open_url=urlopen) -> Mapping[str, Any]:
+def claim_job(request: LaunchRequest, open_url=open_no_redirect) -> Mapping[str, Any]:
     claim_request = Request(
         f"{API_ORIGIN}/api/automation/jobs/{quote(request.job_id, safe='')}/claim",
         data=b"",
@@ -131,7 +132,7 @@ def post_event(
     job: ClaimedJob,
     status: str,
     *,
-    open_url=urlopen,
+    open_url=open_no_redirect,
 ) -> None:
     if status not in {
         "preparing",

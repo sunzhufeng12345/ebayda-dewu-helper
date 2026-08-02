@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+from inspect import signature
 from pathlib import Path
 from unittest.mock import patch
 from urllib.error import URLError
@@ -192,6 +193,30 @@ class DownloadTests(unittest.TestCase):
             self.assertFalse(
                 (root / "jobs" / job.job_id / "product.json.part").exists()
             )
+
+
+class NetworkPolicyTests(unittest.TestCase):
+    def test_redirect_handler_never_forwards_job_authorization(self) -> None:
+        handler = helper_runtime.NoRedirectHandler()
+
+        self.assertIsNone(
+            handler.redirect_request(
+                object(),
+                None,
+                302,
+                "Found",
+                {},
+                "https://evil.example/resource",
+            )
+        )
+
+    def test_public_http_clients_default_to_no_redirect_opener(self) -> None:
+        self.assertIs(
+            signature(helper_runtime.prepare_job_files).parameters[
+                "open_url"
+            ].default,
+            helper_runtime.open_no_redirect,
+        )
 
 
 class ChromeRuntimeTests(unittest.TestCase):

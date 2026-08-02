@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, Sequence
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
-from urllib.request import Request, urlopen
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 import main as dewu_main
 
@@ -27,6 +27,14 @@ TRUSTED_DOWNLOAD_HOST = "www.ebayda.com"
 
 class TaskExecutionError(RuntimeError):
     """A claimed task cannot be prepared or executed safely."""
+
+
+class NoRedirectHandler(HTTPRedirectHandler):
+    def redirect_request(self, *args: Any, **kwargs: Any) -> None:
+        return None
+
+
+open_no_redirect = build_opener(NoRedirectHandler()).open
 
 
 @dataclass(frozen=True)
@@ -80,7 +88,7 @@ def prepare_job_files(
     job: ClaimedJob,
     app_root: Path,
     *,
-    open_url: Callable[..., Any] = urlopen,
+    open_url: Callable[..., Any] = open_no_redirect,
 ) -> TaskFiles:
     job_dir = app_root / "jobs" / job.job_id
     work_dir = job_dir / "work"

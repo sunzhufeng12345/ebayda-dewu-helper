@@ -6,6 +6,7 @@ import unittest
 from collections.abc import Mapping
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
+from inspect import signature
 from types import MappingProxyType
 from typing import Any, get_type_hints
 from unittest.mock import patch
@@ -238,6 +239,16 @@ class ClaimJobTests(unittest.TestCase):
             ) as caught:
                 ebayda_helper.claim_job(self.request, open_url)
             self.assertNotIn(ticket, str(caught.exception))
+
+    def test_api_clients_default_to_no_redirect_opener(self) -> None:
+        self.assertIs(
+            signature(ebayda_helper.claim_job).parameters["open_url"].default,
+            helper_runtime.open_no_redirect,
+        )
+        self.assertIs(
+            signature(ebayda_helper.post_event).parameters["open_url"].default,
+            helper_runtime.open_no_redirect,
+        )
 
 
 class CommandLineTests(unittest.TestCase):

@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from inspect import signature
 from pathlib import Path
+from threading import Thread
 from unittest.mock import patch
-from urllib.error import URLError
+from urllib.error import HTTPError, URLError
+from urllib.request import Request
 
 import helper_runtime
 
@@ -196,6 +199,40 @@ class DownloadTests(unittest.TestCase):
 
 
 class NetworkPolicyTests(unittest.TestCase):
+    def test_no_redirect_opener_rejects_real_redirect(self) -> None:
+        requests: list[tuple[str, str | None]] = []
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self) -> None:
+                requests.append((self.path, self.headers.get("Authorization")))
+                if self.path == "/source":
+                    self.send_response(302)
+                    self.send_header("Location", "/target")
+                else:
+                    self.send_response(204)
+                self.end_headers()
+
+            def log_message(self, *_args: object) -> None:
+                return None
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        thread = Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            request = Request(
+                f"http://127.0.0.1:{server.server_port}/source",
+                headers={"Authorization": "JobToken secret-token"},
+            )
+            with self.assertRaises(HTTPError) as caught:
+                helper_runtime.open_no_redirect(request, timeout=1)
+
+            self.assertEqual(caught.exception.code, 302)
+            self.assertEqual(requests, [("/source", "JobToken secret-token")])
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=2)
+
     def test_redirect_handler_never_forwards_job_authorization(self) -> None:
         handler = helper_runtime.NoRedirectHandler()
 

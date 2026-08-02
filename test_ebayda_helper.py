@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-import json
 import io
+import json
+import tempfile
 import unittest
 from collections.abc import Mapping
-from contextlib import redirect_stderr, redirect_stdout
-from pathlib import Path
+from contextlib import nullcontext, redirect_stderr, redirect_stdout
 from inspect import signature
+from pathlib import Path
 from types import MappingProxyType
 from typing import Any, get_type_hints
 from unittest.mock import patch
@@ -252,6 +253,29 @@ class ClaimJobTests(unittest.TestCase):
 
 
 class CommandLineTests(unittest.TestCase):
+    def test_busy_helper_does_not_claim_the_ticket(self) -> None:
+        error_output = io.StringIO()
+        ticket = "abcdefghijklmnop"
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with helper_runtime.instance_lock(root), patch.object(
+                ebayda_helper, "application_root", return_value=root
+            ), patch.object(ebayda_helper, "claim_job") as claim, redirect_stderr(
+                error_output
+            ):
+                exit_code = ebayda_helper.main(
+                    [f"ebayda://run?job_id=job_1&ticket={ticket}"]
+                )
+
+        self.assertEqual(exit_code, 2)
+        claim.assert_not_called()
+        self.assertEqual(
+            json.loads(error_output.getvalue()),
+            {"status": "failed", "error": "助手正在执行另一个任务，请稍后重试"},
+        )
+        self.assertNotIn(ticket, error_output.getvalue())
+
     def test_success_prints_only_safe_execution_summary(self) -> None:
         output = io.StringIO()
         with patch.object(
@@ -262,6 +286,8 @@ class CommandLineTests(unittest.TestCase):
             ebayda_helper,
             "execute_claimed_job",
             return_value=("draft_saved", "job_1", "101"),
+        ), patch.object(
+            ebayda_helper, "instance_lock", return_value=nullcontext()
         ), redirect_stdout(output):
             exit_code = ebayda_helper.main(
                 ["ebayda://run?job_id=job_1&ticket=abcdefghijklmnop"]
@@ -280,6 +306,8 @@ class CommandLineTests(unittest.TestCase):
             ebayda_helper,
             "claim_job",
             side_effect=ebayda_helper.HelperError("领取任务失败"),
+        ), patch.object(
+            ebayda_helper, "instance_lock", return_value=nullcontext()
         ), redirect_stderr(error_output):
             exit_code = ebayda_helper.main(
                 ["ebayda://run?job_id=job_1&ticket=abcdefghijklmnop"]
@@ -298,6 +326,8 @@ class CommandLineTests(unittest.TestCase):
             ebayda_helper,
             "execute_claimed_job",
             return_value=("paused_for_user", "job_1", "101"),
+        ), patch.object(
+            ebayda_helper, "instance_lock", return_value=nullcontext()
         ), redirect_stdout(output):
             exit_code = ebayda_helper.main(
                 ["ebayda://run?job_id=job_1&ticket=abcdefghijklmnop"]

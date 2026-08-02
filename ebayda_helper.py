@@ -16,6 +16,7 @@ from helper_runtime import (
     TaskExecutionError,
     application_root,
     ensure_chrome,
+    instance_lock,
     open_no_redirect,
     prepare_job_files,
     run_automation,
@@ -207,13 +208,8 @@ def _post_final_event(job: ClaimedJob, status: str) -> None:
         pass
 
 
-def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Ebayda 得物自动上架本地助手")
-    parser.add_argument("launch_url", help="网站生成的 ebayda:// 启动地址")
-    args = parser.parse_args(argv)
-
+def _run_launch(launch: LaunchRequest) -> int:
     try:
-        launch = parse_launch_url(args.launch_url)
         payload = claim_job(launch)
     except HelperError as error:
         print(
@@ -245,6 +241,24 @@ def main(argv: list[str] | None = None) -> int:
     if status == "paused_for_user":
         return 2
     return 3
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Ebayda 得物自动上架本地助手")
+    parser.add_argument("launch_url", help="网站生成的 ebayda:// 启动地址")
+    args = parser.parse_args(argv)
+
+    try:
+        launch = parse_launch_url(args.launch_url)
+        with instance_lock(application_root()):
+            return _run_launch(launch)
+    except (HelperError, TaskExecutionError) as error:
+        print(
+            json.dumps({"status": "failed", "error": str(error)}, ensure_ascii=False),
+            file=sys.stderr,
+            flush=True,
+        )
+        return 2
 
 
 if __name__ == "__main__":

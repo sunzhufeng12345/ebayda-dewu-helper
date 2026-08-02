@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import sys
 import tempfile
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from inspect import signature
 from pathlib import Path
 from threading import Thread
+from types import SimpleNamespace
 from unittest.mock import patch
 from urllib.error import HTTPError, URLError
 from urllib.request import Request
@@ -254,6 +256,42 @@ class NetworkPolicyTests(unittest.TestCase):
             ].default,
             helper_runtime.open_no_redirect,
         )
+
+
+class InstanceLockTests(unittest.TestCase):
+    def test_second_instance_is_rejected_until_first_releases(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+
+            with helper_runtime.instance_lock(root):
+                with self.assertRaisesRegex(
+                    helper_runtime.TaskExecutionError,
+                    "^助手正在执行另一个任务，请稍后重试$",
+                ):
+                    with helper_runtime.instance_lock(root):
+                        self.fail("second instance acquired the lock")
+
+            with helper_runtime.instance_lock(root):
+                pass
+
+    def test_windows_lock_uses_nonblocking_first_byte(self) -> None:
+        calls: list[tuple[int, int, int]] = []
+        fake_msvcrt = SimpleNamespace(
+            LK_NBLCK=7,
+            locking=lambda fd, mode, size: calls.append((fd, mode, size)),
+        )
+
+        with tempfile.TemporaryDirectory() as directory, patch.object(
+            helper_runtime.sys, "platform", "win32"
+        ), patch.dict(sys.modules, {"msvcrt": fake_msvcrt}):
+            root = Path(directory)
+            with helper_runtime.instance_lock(root):
+                pass
+
+            self.assertEqual((root / "instance.lock").read_bytes(), b"\0")
+
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0][1:], (fake_msvcrt.LK_NBLCK, 1))
 
 
 class ChromeRuntimeTests(unittest.TestCase):

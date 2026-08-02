@@ -7,9 +7,10 @@ import subprocess
 import sys
 import time
 from collections.abc import Callable, Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any, Iterator, Sequence
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import HTTPRedirectHandler, Request, build_opener
@@ -124,6 +125,25 @@ def application_root() -> Path:
     return Path(data_home) / "EbaydaHelper" if data_home else Path.home() / ".local" / "share" / "EbaydaHelper"
 
 
+@contextmanager
+def instance_lock(app_root: Path) -> Iterator[None]:
+    try:
+        app_root.mkdir(parents=True, exist_ok=True)
+        lock_file = (app_root / "instance.lock").open("a+b")
+    except OSError:
+        raise TaskExecutionError("无法创建助手运行锁") from None
+
+    try:
+        _acquire_file_lock(lock_file)
+    except OSError:
+        lock_file.close()
+        raise TaskExecutionError("助手正在执行另一个任务，请稍后重试") from None
+    try:
+        yield
+    finally:
+        lock_file.close()
+
+
 def shop_profile(app_root: Path, shop_id: str) -> Path:
     if not SAFE_ID_PATTERN.fullmatch(shop_id):
         raise TaskExecutionError("无法创建店铺 Profile：shop_id 格式错误")
@@ -236,6 +256,23 @@ def _port_is_open(port: int) -> bool:
             return True
     except OSError:
         return False
+
+
+def _acquire_file_lock(lock_file: Any) -> None:
+    if sys.platform == "win32":
+        import msvcrt
+
+        lock_file.seek(0, os.SEEK_END)
+        if lock_file.tell() == 0:
+            lock_file.write(b"\0")
+            lock_file.flush()
+        lock_file.seek(0)
+        msvcrt.locking(lock_file.fileno(), msvcrt.LK_NBLCK, 1)
+        return
+
+    import fcntl
+
+    fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
 
 
 def _valid_token(value: str) -> bool:

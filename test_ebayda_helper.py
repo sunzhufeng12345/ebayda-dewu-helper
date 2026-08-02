@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 import unittest
+from urllib.error import HTTPError, URLError
 
 import ebayda_helper
 
@@ -45,3 +47,146 @@ class LaunchUrlTests(unittest.TestCase):
         for value in invalid_urls:
             with self.subTest(value=value), self.assertRaises(ebayda_helper.HelperError):
                 ebayda_helper.parse_launch_url(value)
+
+
+class ClaimJobTests(unittest.TestCase):
+    class Response:
+        def __init__(self, body: bytes) -> None:
+            self.body = body
+            self.read_limit: int | None = None
+            self.closed = False
+
+        def __enter__(self) -> ClaimJobTests.Response:
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            self.closed = True
+
+        def read(self, limit: int) -> bytes:
+            self.read_limit = limit
+            return self.body[:limit]
+
+    def setUp(self) -> None:
+        self.request = ebayda_helper.LaunchRequest(
+            job_id="job_abc-123", ticket="super-secret-ticket"
+        )
+
+    def claim_payload(self, payload: object) -> object:
+        response = self.Response(json.dumps(payload).encode("utf-8"))
+        return ebayda_helper.claim_job(self.request, lambda *args, **kwargs: response)
+
+    def test_posts_claim_request_and_returns_valid_payload(self) -> None:
+        request = ebayda_helper.LaunchRequest(
+            job_id="job/with space", ticket="super-secret-ticket"
+        )
+        payload = {
+            "job_id": request.job_id,
+            "action": "save_draft",
+            "shop_id": "shop_123",
+        }
+        response = self.Response(json.dumps(payload).encode("utf-8"))
+        call: dict[str, object] = {}
+
+        def open_url(http_request: object, timeout: int) -> ClaimJobTests.Response:
+            call["request"] = http_request
+            call["timeout"] = timeout
+            return response
+
+        result = ebayda_helper.claim_job(request, open_url)
+
+        http_request = call["request"]
+        headers = {
+            name.casefold(): value for name, value in http_request.header_items()
+        }
+        self.assertEqual(
+            http_request.full_url,
+            "https://www.ebayda.com/api/automation/jobs/job%2Fwith%20space/claim",
+        )
+        self.assertEqual(http_request.get_method(), "POST")
+        self.assertEqual(http_request.data, b"")
+        self.assertEqual(headers["accept"], "application/json")
+        self.assertEqual(
+            headers["authorization"], "LaunchTicket super-secret-ticket"
+        )
+        self.assertEqual(headers["user-agent"], "EbaydaHelper/0.1")
+        self.assertEqual(ebayda_helper.CLAIM_TIMEOUT_SECONDS, 10)
+        self.assertEqual(call["timeout"], 10)
+        self.assertEqual(ebayda_helper.MAX_CLAIM_RESPONSE_BYTES, 1024 * 1024)
+        self.assertEqual(response.read_limit, 1024 * 1024 + 1)
+        self.assertTrue(response.closed)
+        self.assertEqual(result, payload)
+
+    def test_rejects_mismatched_job_action_and_non_object_payloads(self) -> None:
+        invalid_payloads = (
+            {
+                "job_id": "another_job",
+                "action": "save_draft",
+                "shop_id": "shop_123",
+            },
+            {
+                "job_id": self.request.job_id,
+                "action": "submit",
+                "shop_id": "shop_123",
+            },
+            [self.request.job_id, "save_draft", "shop_123"],
+        )
+
+        for payload in invalid_payloads:
+            with self.subTest(payload=payload), self.assertRaises(
+                ebayda_helper.HelperError
+            ):
+                self.claim_payload(payload)
+
+    def test_rejects_invalid_shop_id(self) -> None:
+        with self.assertRaises(ebayda_helper.HelperError):
+            self.claim_payload(
+                {
+                    "job_id": self.request.job_id,
+                    "action": "save_draft",
+                    "shop_id": "../shop",
+                }
+            )
+
+    def test_rejects_oversized_or_malformed_responses(self) -> None:
+        invalid_bodies = (
+            b"x" * (ebayda_helper.MAX_CLAIM_RESPONSE_BYTES + 1),
+            b"\xff",
+            b"{",
+        )
+
+        for body in invalid_bodies:
+            with self.subTest(size=len(body)), self.assertRaises(
+                ebayda_helper.HelperError
+            ):
+                ebayda_helper.claim_job(
+                    self.request, lambda *args, body=body, **kwargs: self.Response(body)
+                )
+
+    def test_transport_errors_are_safe_and_do_not_expose_ticket(self) -> None:
+        ticket = self.request.ticket
+        errors = (
+            (
+                HTTPError(
+                    f"https://www.ebayda.com/?ticket={ticket}",
+                    403,
+                    ticket,
+                    None,
+                    None,
+                ),
+                "领取任务失败：HTTP 403",
+            ),
+            (URLError(ticket), "领取任务失败：网络错误"),
+            (URLError(TimeoutError(ticket)), "领取任务失败：请求超时"),
+            (TimeoutError(ticket), "领取任务失败：请求超时"),
+            (OSError(ticket), "领取任务失败：网络错误"),
+        )
+
+        for error, expected_message in errors:
+            def open_url(*args: object, error: BaseException = error, **kwargs: object) -> None:
+                raise error
+
+            with self.subTest(error=type(error).__name__), self.assertRaisesRegex(
+                ebayda_helper.HelperError, f"^{expected_message}$"
+            ) as caught:
+                ebayda_helper.claim_job(self.request, open_url)
+            self.assertNotIn(ticket, str(caught.exception))

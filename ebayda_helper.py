@@ -1,10 +1,16 @@
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass
-from urllib.parse import parse_qs, urlparse
+from urllib.error import HTTPError, URLError
+from urllib.parse import parse_qs, quote, urlparse
+from urllib.request import Request, urlopen
 
 
+API_ORIGIN = "https://www.ebayda.com"
+CLAIM_TIMEOUT_SECONDS = 10
+MAX_CLAIM_RESPONSE_BYTES = 1024 * 1024
 MAX_LAUNCH_URL_LENGTH = 4_096
 JOB_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
 
@@ -54,3 +60,47 @@ def parse_launch_url(value: str) -> LaunchRequest:
     if any(ord(character) < 33 or ord(character) > 126 for character in ticket):
         raise HelperError("ticket 格式错误")
     return LaunchRequest(job_id=job_id, ticket=ticket)
+
+
+def claim_job(request: LaunchRequest, open_url=urlopen) -> dict[str, object]:
+    claim_request = Request(
+        f"{API_ORIGIN}/api/automation/jobs/{quote(request.job_id, safe='')}/claim",
+        data=b"",
+        headers={
+            "Accept": "application/json",
+            "Authorization": f"LaunchTicket {request.ticket}",
+            "User-Agent": "EbaydaHelper/0.1",
+        },
+        method="POST",
+    )
+    try:
+        with open_url(claim_request, timeout=CLAIM_TIMEOUT_SECONDS) as response:
+            body = response.read(MAX_CLAIM_RESPONSE_BYTES + 1)
+    except HTTPError as error:
+        raise HelperError(f"领取任务失败：HTTP {error.code}") from None
+    except URLError as error:
+        message = "领取任务失败：请求超时" if isinstance(
+            error.reason, TimeoutError
+        ) else "领取任务失败：网络错误"
+        raise HelperError(message) from None
+    except TimeoutError:
+        raise HelperError("领取任务失败：请求超时") from None
+    except OSError:
+        raise HelperError("领取任务失败：网络错误") from None
+
+    if len(body) > MAX_CLAIM_RESPONSE_BYTES:
+        raise HelperError("领取任务失败：响应过大")
+    try:
+        payload = json.loads(body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        raise HelperError("领取任务失败：响应格式错误") from None
+    if not isinstance(payload, dict):
+        raise HelperError("领取任务失败：响应格式错误")
+    if payload.get("job_id") != request.job_id:
+        raise HelperError("领取任务失败：job_id 不匹配")
+    if payload.get("action") != "save_draft":
+        raise HelperError("领取任务失败：任务动作错误")
+    shop_id = payload.get("shop_id")
+    if not isinstance(shop_id, str) or not JOB_ID_PATTERN.fullmatch(shop_id):
+        raise HelperError("领取任务失败：shop_id 格式错误")
+    return payload

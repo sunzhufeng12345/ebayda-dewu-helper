@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+import tempfile
 import unittest
 from decimal import Decimal
 from pathlib import Path
@@ -8,6 +9,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import main
+from models import load_product
 
 
 class SkipSizeChartTests(unittest.TestCase):
@@ -16,6 +18,64 @@ class SkipSizeChartTests(unittest.TestCase):
             args = main.parse_args()
 
         self.assertTrue(args.skip_size_chart)
+
+
+class ProductMappingTests(unittest.TestCase):
+    def test_item_number_and_source_pattern_mapping(self) -> None:
+        product = load_product(Path(__file__).with_name("1632.json"))
+
+        self.assertEqual(product.item_no, "PB26XY01LJB-ZB9603")
+        self.assertEqual(product.attributes["设计元素"], ("印花",))
+
+    def test_package_defaults_are_fixed(self) -> None:
+        self.assertEqual(
+            main.PACKAGE_DEFAULTS,
+            {
+                "length_cm": "42",
+                "width_cm": "38",
+                "height_cm": "5",
+                "weight_kg": "0.8",
+            },
+        )
+
+
+class SizeGuidanceConfigTests(unittest.TestCase):
+    def test_size_guidance_file_normalizes_trailing_hyphen_and_5x(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            recommendation = root / "尺码推荐"
+            report = root / "试穿报告"
+            recommendation.mkdir()
+            report.mkdir()
+            recommendation_file = recommendation / "M-3XL-.xlsx"
+            report_file = report / "L-5X.xlsx"
+            recommendation_file.touch()
+            report_file.touch()
+
+            self.assertEqual(
+                main._resolve_size_guidance_file(
+                    ("M", "L", "XL", "2XL", "3XL"),
+                    root,
+                    "尺码推荐",
+                ),
+                recommendation_file.resolve(),
+            )
+            self.assertEqual(
+                main._resolve_size_guidance_file(
+                    ("L", "XL", "2XL", "3XL", "4XL", "5XL"),
+                    root,
+                    "试穿报告",
+                ),
+                report_file.resolve(),
+            )
+
+    def test_missing_size_guidance_file_is_rejected_before_browser(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "尺码推荐").mkdir()
+
+            with self.assertRaises(main.ProductDataError):
+                main._resolve_size_guidance_file(("M", "L"), root, "尺码推荐")
 
 
 class StartPageTests(unittest.TestCase):
@@ -257,6 +317,7 @@ class WorkflowOrderTests(unittest.TestCase):
             "_fill_attributes",
             "_fill_colors",
             "_fill_sizes",
+            "_upload_size_guidance",
             "_fill_skus",
             "_upload_carousel",
             "_upload_detail_sections",
@@ -291,6 +352,77 @@ class FormTextFieldTests(unittest.TestCase):
 
         self.assertTrue(input_element.focused)
         self.assertEqual(input_element.value, "棉100%")
+
+
+class SkuInputOptimizationTests(unittest.TestCase):
+    def test_fill_sku_row_batches_non_select_inputs(self) -> None:
+        class FakeInput(_FocusRequiredInput):
+            pass
+
+        class FakeRow:
+            def __init__(self) -> None:
+                self.inputs = [FakeInput() for _ in range(9)]
+
+            def eles(self, locator: str, **_kwargs: object) -> list[FakeInput]:
+                return self.inputs if "input" in locator else []
+
+        row = FakeRow()
+        automation = object.__new__(main.DewuAutomation)
+        automation.settings = SimpleNamespace(
+            offer_type="直发",
+            package_defaults={
+                "length_cm": "42",
+                "width_cm": "38",
+                "height_cm": "5",
+                "weight_kg": "0.8",
+            },
+        )
+        batches: list[tuple[object, ...]] = []
+        automation._set_sku_text_inputs = (
+            lambda _row, _inputs, values: batches.append(tuple(values))
+        )
+        automation._select_from_input = lambda *_args, **_kwargs: None
+
+        automation._fill_sku_row(
+            row,
+            SimpleNamespace(
+                color="白色",
+                size="M",
+                product_code="SKU-1",
+                auxiliary_code="AUX-1",
+                offer_amount=Decimal("399"),
+                inventory=1000,
+            ),
+        )
+
+        self.assertEqual(
+            batches,
+            [("SKU-1", "AUX-1", None, "399", "1000", "42", "38", "5", "0.8")],
+        )
+
+    def test_batch_write_accepts_page_numeric_formatting(self) -> None:
+        class FakeRow:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def run_js(self, _script: str) -> list[str]:
+                self.calls += 1
+                return ["SKU-1", "AUX-1", "直发", "399.00", "1000", "42", "38", "5", "0.8"]
+
+        row = FakeRow()
+        inputs = [_FocusRequiredInput() for _ in range(9)]
+        automation = object.__new__(main.DewuAutomation)
+        fallback: list[object] = []
+        automation._input_value = lambda element, value: fallback.append((element, value))
+
+        automation._set_sku_text_inputs(
+            row,
+            inputs,
+            ("SKU-1", "AUX-1", None, "399", "1000", "42", "38", "5", "0.8"),
+        )
+
+        self.assertEqual(row.calls, 1)
+        self.assertEqual(fallback, [])
 
 
 class _FakeRect:
@@ -369,6 +501,15 @@ class _FakeFormItem:
         return self.inputs if "input" in locator else []
 
 
+class _TimeoutRecordingOwner:
+    def __init__(self) -> None:
+        self.timeouts: list[float | None] = []
+
+    def eles(self, _locator: str, *, timeout: float | None = None) -> list[object]:
+        self.timeouts.append(timeout)
+        return []
+
+
 class _FakeCheckbox:
     def __init__(self, checked: bool) -> None:
         self.states = SimpleNamespace(is_checked=checked)
@@ -403,6 +544,26 @@ class _FakeHeader:
 
 
 class AttributeSelectionTests(unittest.TestCase):
+    def test_optional_attribute_missing_option_uses_short_wait(self) -> None:
+        input_element = _FakeReadonlyInput(readonly=False)
+        timeouts: list[float] = []
+        automation = object.__new__(main.DewuAutomation)
+        automation.result = SimpleNamespace(warnings=[])
+        automation._click = lambda _element: None
+        automation._wait_for_option = lambda _value, timeout: timeouts.append(timeout) or None
+
+        self.assertFalse(
+            automation._select_from_input(input_element, "不存在的属性", required=False)
+        )
+        self.assertEqual(timeouts, [1])
+
+    def test_attribute_state_checks_use_immediate_scoped_queries(self) -> None:
+        owner = _TimeoutRecordingOwner()
+        automation = object.__new__(main.DewuAutomation)
+
+        self.assertFalse(automation._form_item_has_value(owner, "不存在的属性"))
+        self.assertEqual(owner.timeouts, [0, 0, 0])
+
     def test_multiselect_uses_editable_input_instead_of_readonly_display(self) -> None:
         editable_input = _FakeReadonlyInput(readonly=False)
         readonly_display = _FakeReadonlyInput(readonly=True)
@@ -438,6 +599,74 @@ class AttributeSelectionTests(unittest.TestCase):
             automation._select_from_input(input_element, "棉", required=True)
         )
         self.assertFalse(input_element.dropdown_open)
+
+
+class CreatableColorTests(unittest.TestCase):
+    def test_new_color_uses_short_option_wait(self) -> None:
+        input_element = _FocusRequiredInput()
+        timeouts: list[float] = []
+        automation = object.__new__(main.DewuAutomation)
+        automation._click = lambda _element: None
+        automation._wait_for_option = (
+            lambda _value, timeout: timeouts.append(timeout) or None
+        )
+        automation._wait_until = lambda predicate, **_kwargs: predicate()
+
+        automation._set_creatable_select(input_element, "雾蓝")
+
+        self.assertEqual(timeouts, [0.6])
+
+
+class OptionLookupTests(unittest.TestCase):
+    def test_option_lookup_survives_transient_missing_rect(self) -> None:
+        class Option:
+            states = SimpleNamespace(is_displayed=True)
+
+            @property
+            def rect(self):
+                raise RuntimeError("layout is being rebuilt")
+
+            def run_js(self, _script: str) -> bool:
+                return True
+
+        option = Option()
+        automation = object.__new__(main.DewuAutomation)
+        automation.tab = SimpleNamespace(eles=lambda *_args, **_kwargs: [option])
+        automation._wait_until = lambda predicate, **_kwargs: predicate()
+
+        self.assertIs(automation._wait_for_option("常规款", timeout=1), option)
+
+
+class RadioSelectionTests(unittest.TestCase):
+    def test_radio_option_uses_dom_click_when_pointer_click_does_not_change_state(self) -> None:
+        class RadioLabel:
+            text = "宽松"
+            states = SimpleNamespace(is_displayed=True)
+
+            def __init__(self) -> None:
+                self.checked = False
+
+            def attr(self, name: str) -> str | None:
+                return "el-radio" if name == "class" else None
+
+            def ele(self, _locator: str, **_kwargs: object) -> object:
+                return object()
+
+            def run_js(self, _script: str) -> None:
+                self.checked = True
+
+        label = RadioLabel()
+        form_item = object()
+        automation = object.__new__(main.DewuAutomation)
+        automation._form_item = lambda _label: form_item
+        automation._scoped_elements = lambda *_args, **_kwargs: [label]
+        automation._click = lambda _element: None
+        automation._form_item_has_value = lambda _form, _value: label.checked
+        automation._wait_until = lambda predicate, **_kwargs: predicate()
+
+        automation._choose_form_value("版型", ("宽松",), required=True)
+
+        self.assertTrue(label.checked)
 
 
 class SizeChartRowTests(unittest.TestCase):
@@ -602,6 +831,220 @@ class SizeChartRowTests(unittest.TestCase):
 
         values = [main._element_value(row.inputs[0]) for row in rows]
         self.assertEqual(values, ["M", "L", "XL", "2XL", ""])
+
+
+class _FakeGuidanceUploadInput:
+    def __init__(self, events: list[tuple[str, str]]) -> None:
+        self.events = events
+        self.value = ""
+        self.attributes: dict[str, str] = {}
+
+    def input(self, value: str) -> None:
+        self.events.append(("upload", str(value)))
+        self.attributes["data-dewu-upload-seen"] = "1"
+
+    def run_js(self, _script: str) -> None:
+        self.attributes["data-dewu-upload-seen"] = "0"
+
+    def property(self, name: str) -> str | None:
+        return self.value if name == "value" else None
+
+    def attr(self, name: str) -> str | None:
+        if name in self.attributes:
+            return self.attributes[name]
+        return self.value if name == "value" else None
+
+
+class _FakeGuidanceConfirm:
+    states = SimpleNamespace(is_enabled=True, is_displayed=True)
+
+    def attr(self, _name: str) -> str | None:
+        return None
+
+
+class _FakeGuidanceMessage:
+    def __init__(self, text: str) -> None:
+        self.text = text
+
+
+class _FakeGuidanceDialog:
+    rect = SimpleNamespace(size=(100, 100))
+
+
+class SizeGuidanceUploadTests(unittest.TestCase):
+    def test_guidance_upload_does_not_require_clear_button(self) -> None:
+        events: list[tuple[str, str]] = []
+        automation, _upload_input = self._automation_for_upload(
+            clear_result=True,
+            events=events,
+        )
+        automation._clear_guidance_modal = lambda *_args: (_ for _ in ()).throw(
+            AssertionError("一键清空不应是上传前置条件")
+        )
+
+        automation._upload_guidance_file("尺码推荐", Path("/tmp/M-3XL.xlsx"))
+
+        self.assertEqual([event[0] for event in events], ["upload", "confirm"])
+
+    def test_try_on_upload_selects_template_before_finding_file_input(self) -> None:
+        events: list[tuple[str, str]] = []
+        automation, upload_input = self._automation_for_upload(
+            clear_result=True,
+            events=events,
+        )
+        template_selected = False
+
+        def select_template(_modal: object, label: str) -> None:
+            nonlocal template_selected
+            template_selected = True
+            events.append(("template", label))
+
+        def find_input(*_args: object, **_kwargs: object) -> _FakeGuidanceUploadInput:
+            if not template_selected:
+                raise main.AutomationError("试穿报告模板尚未选择")
+            return upload_input
+
+        automation._select_guidance_template = select_template
+        automation._find_any = find_input
+
+        automation._upload_guidance_file("试穿报告", Path("/tmp/M-3XL.xlsx"))
+
+        self.assertEqual(
+            [event[0] for event in events],
+            ["template", "upload", "confirm"],
+        )
+
+    def test_guidance_submit_reports_page_validation_message(self) -> None:
+        automation = object.__new__(main.DewuAutomation)
+        automation._locate_guidance_modal = lambda _label: object()
+        automation._visible_elements = lambda *_args, **_kwargs: [
+            _FakeGuidanceMessage("请填写温馨提示")
+        ]
+        automation._wait_until = lambda predicate, **_kwargs: predicate()
+
+        with self.assertRaisesRegex(main.AutomationError, "请填写温馨提示"):
+            automation._wait_for_guidance_modal_to_close("尺码推荐")
+
+    def test_guidance_modal_locator_only_matches_dialog_root(self) -> None:
+        dialog = _FakeGuidanceDialog()
+        locators: list[str] = []
+        automation = object.__new__(main.DewuAutomation)
+
+        def visible_elements(xpath: str, **_kwargs: object) -> list[object]:
+            locators.append(xpath)
+            return [dialog]
+
+        automation._visible_elements = visible_elements
+
+        self.assertIs(automation._locate_guidance_modal("试穿报告"), dialog)
+        self.assertIn("@role='dialog'", locators[0])
+        self.assertNotIn("contains(@class,'drawer')", locators[0])
+
+    def test_open_guidance_modal_clicks_matching_add_button(self) -> None:
+        button = object()
+        modal = object()
+        opened = False
+        clicked: list[object] = []
+        automation = object.__new__(main.DewuAutomation)
+
+        def locate(_label: str) -> object | None:
+            return modal if opened else None
+
+        def click(element: object) -> None:
+            nonlocal opened
+            clicked.append(element)
+            opened = True
+
+        automation._locate_guidance_modal = locate
+        automation._find_visible = lambda *_args, **_kwargs: button
+        automation._click = click
+        automation._wait_until = lambda predicate, **_kwargs: predicate()
+
+        self.assertIs(automation._open_guidance_modal("试穿报告"), modal)
+        self.assertEqual(clicked, [button])
+
+    def test_clear_button_is_clicked_and_waits_for_values_to_change(self) -> None:
+        clear_control = object()
+        clicked: list[object] = []
+        automation = object.__new__(main.DewuAutomation)
+        automation.result = SimpleNamespace(warnings=[])
+        automation._visible_elements = lambda xpath, **_kwargs: (
+            [clear_control] if "一键清空" in xpath else []
+        )
+        automation._click = lambda element: clicked.append(element)
+        values = [["old"], []]
+        automation._guidance_modal_values = lambda _label: values.pop(0)
+        automation._wait_until = lambda predicate, **_kwargs: predicate()
+
+        self.assertTrue(automation._clear_guidance_modal(object(), "尺码推荐"))
+        self.assertEqual(clicked, [clear_control])
+
+    def test_missing_clear_button_adds_warning_without_raising(self) -> None:
+        automation = object.__new__(main.DewuAutomation)
+        automation.result = SimpleNamespace(warnings=[])
+        automation._visible_elements = lambda *_args, **_kwargs: []
+
+        self.assertFalse(automation._clear_guidance_modal(object(), "试穿报告"))
+        self.assertTrue(any("一键清空" in warning for warning in automation.result.warnings))
+
+    def _automation_for_upload(
+        self,
+        *,
+        clear_result: bool,
+        events: list[tuple[str, str]],
+    ) -> tuple[main.DewuAutomation, _FakeGuidanceUploadInput]:
+        automation = object.__new__(main.DewuAutomation)
+        automation.settings = SimpleNamespace(upload_timeout=1)
+        automation.result = SimpleNamespace(
+            uploaded_counts={},
+            warnings=[],
+        )
+        modal = object()
+        upload_input = _FakeGuidanceUploadInput(events)
+        confirm = _FakeGuidanceConfirm()
+        automation._open_guidance_modal = lambda _label: modal
+
+        def clear_guidance(*_args: object) -> bool:
+            events.append(("clear", ""))
+            if not clear_result:
+                automation.result.warnings.append("一键清空不可用")
+            return clear_result
+
+        automation._clear_guidance_modal = clear_guidance
+        automation._find_any = lambda *_args, **_kwargs: upload_input
+        automation._find_visible = lambda *_args, **_kwargs: confirm
+        automation._click = lambda _element: events.append(("confirm", ""))
+        automation._wait_until = lambda predicate, **_kwargs: predicate()
+        automation._locate_guidance_modal = lambda _label: None
+        return automation, upload_input
+
+    def test_guidance_upload_overwrites_without_clearing(self) -> None:
+        events: list[tuple[str, str]] = []
+        automation, _upload_input = self._automation_for_upload(
+            clear_result=True,
+            events=events,
+        )
+
+        automation._upload_guidance_file("尺码推荐", Path("/tmp/M-3XL.xlsx"))
+
+        self.assertEqual(
+            [event[0] for event in events],
+            ["upload", "confirm"],
+        )
+        self.assertEqual(automation.result.uploaded_counts["size_recommendation"], 1)
+
+    def test_guidance_upload_does_not_warn_when_clear_button_is_missing(self) -> None:
+        events: list[tuple[str, str]] = []
+        automation, _upload_input = self._automation_for_upload(
+            clear_result=False,
+            events=events,
+        )
+
+        automation._upload_guidance_file("试穿报告", Path("/tmp/M-3XL.xlsx"))
+
+        self.assertEqual([event[0] for event in events], ["upload", "confirm"])
+        self.assertEqual(automation.result.uploaded_counts["try_on_report"], 1)
+        self.assertEqual(automation.result.warnings, [])
 
 
 if __name__ == "__main__":

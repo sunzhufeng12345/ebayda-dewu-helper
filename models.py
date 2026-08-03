@@ -106,8 +106,9 @@ def load_product(
     payload = _read_json(json_path)
     data = _unwrap_api_payload(payload)
 
-    # 货号、商品名和类目是后续页面定位及标题生成的最小必需信息。
+    # 商品编码用于来源 SKU 和图片工作目录；货号单独使用平台来源的 itemNumber。
     code = _required_text(data, "code")
+    item_no = _required_text(data, "itemNumber")
     source_name = _required_text(data, "name").strip()
     category_path = tuple(
         part.strip() for part in _required_text(data, "categoryPath").split("/") if part.strip()
@@ -160,7 +161,7 @@ def load_product(
         source_name=source_name,
         brand=brand,
         category_path=category_path,
-        item_no=code,
+        item_no=item_no,
         audience="通用",
         title=title,
         release_price=release_price,
@@ -460,15 +461,15 @@ def _build_dewu_attributes(
         if material and percentage not in (None, ""):
             attributes["成分含量"] = (f"{material}{percentage}%",)
 
-    # 商品类型属性的图案信息在 subValueText 中，可能有多行，去重后再填写。
-    pattern_rows = _find_attribute_rows(rows, "leixing-pinpai", "商品类型与品牌")
-    patterns = tuple(
+    # 来源的“商品类型与品牌”子值对应得物页面的“设计元素”，可能有多行。
+    design_element_rows = _find_attribute_rows(rows, "leixing-pinpai", "商品类型与品牌")
+    design_elements = tuple(
         str(row.get("subValueText") or "").strip()
-        for row in pattern_rows
+        for row in design_element_rows
         if str(row.get("subValueText") or "").strip()
     )
-    if patterns:
-        attributes["图案"] = tuple(dict.fromkeys(patterns))
+    if design_elements:
+        attributes["设计元素"] = tuple(dict.fromkeys(design_elements))
 
     # 上市时间已在 _release_season 中归一化为平台可接受的季节值。
     attributes["适用季节"] = (release_season,)

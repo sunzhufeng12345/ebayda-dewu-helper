@@ -263,7 +263,7 @@ def load_product(
     grouped_attributes, attribute_rows = _group_attributes(data.get("attributes"))
     release_price = _release_price(attribute_rows)
     release_season = _release_season(attribute_rows)
-    title = _build_title(source_name, brand, category_path[-1])
+    title = _build_title(source_name, brand, category_path[-1], grouped_attributes)
 
     recommended_attributes, inferred_attributes = _build_dewu_attributes(
         source_name,
@@ -525,7 +525,12 @@ def _attribute_number(
     return result if result.is_finite() else None
 
 
-def _build_title(source_name: str, brand: str, source_category: str) -> TitleParts:
+def _build_title(
+    source_name: str,
+    brand: str,
+    source_category: str,
+    grouped_attributes: Mapping[str, tuple[str, ...]] | None = None,
+) -> TitleParts:
     # 标题字段必须拆开填入页面，因此先识别适用人群和类目，再从商品名中
     # 去除已经被单独使用的部分，把剩余文本作为卖点。
     audience = next(
@@ -549,6 +554,26 @@ def _build_title(source_name: str, brand: str, source_category: str) -> TitlePar
     selling_point = candidate[: min(24, max_selling_point)].strip(" ，,、")
     if len(selling_point) < 2:
         selling_point = source_name[: min(24, max_selling_point)].strip()
+
+    def title_length() -> int:
+        return len(brand) + len(selling_point) + len(category) + len(audience)
+
+    if title_length() < 16:
+        # 短目录名称（例如“休闲裤”）没有足够卖点，补充来源风格后再填标题，
+        # 最后才用中性的“款”补齐平台下限，避免凭空编造商品卖点。
+        hints = list((grouped_attributes or {}).get("风格", ()))
+        category_hint = source_category.replace("男士", "").replace("女士", "").strip()
+        if not hints and category_hint and category_hint != category:
+            hints.append(category_hint)
+        for hint in hints:
+            if title_length() >= 16:
+                break
+            text = str(hint).strip(" ，,、")
+            available = max_selling_point - len(selling_point)
+            if text and available > 0:
+                selling_point += text[:available]
+        while title_length() < 16 and len(selling_point) < max_selling_point:
+            selling_point += "款"
     return TitleParts(selling_point=selling_point, category=category, audience=audience)
 
 
@@ -624,6 +649,13 @@ def _build_dewu_attributes(
     elif "短袖" in source_name:
         attributes["袖长"] = ("短袖",)
         inferred.append("袖长")
+
+    # 商品名中的明确领型词可以作为页面必填属性的可靠来源；含糊时继续留给人工填写。
+    for collar in ("圆领", "V领", "高领", "立领", "翻领", "连帽"):
+        if collar in source_name:
+            attributes["领型"] = (collar,)
+            inferred.append("领型")
+            break
 
     if "短款" in source_name:
         attributes["衣长"] = ("短款",)

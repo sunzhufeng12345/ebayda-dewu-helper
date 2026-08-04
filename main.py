@@ -199,6 +199,7 @@ START_PAGE_URL = f"https://{TARGET_HOST}{START_PATH_FRAGMENT}?noLayout=1"
 START_CATEGORY_PATH = ("服装", "上衣", "卫衣")
 START_AUDIENCE = "通用"
 TARGET_PATH_FRAGMENT = "/vueProduct/newProductApply/spuEdit/operation/"
+SAVE_RESULT_PATH_FRAGMENT = "/main/newProductApply/spuEdit/result"
 CONFIG_ROOT = Path(__file__).resolve().parent / "配置文件"
 SIZE_GUIDANCE_BUTTONS: Mapping[str, str] = {
     "尺码推荐": "添加尺码推荐",
@@ -691,13 +692,12 @@ class DewuAutomation:
         # 页面可能在填写过程中留下异步校验错误，保存前再统一读取一次可见错误。
         errors = self._read_visible_errors()
         if errors:
-            self.result.status = "needs_input"
+            # 得物允许把这些提示带入草稿；保存草稿本身不是提交审核。
             self.result.validation_errors.extend(errors)
-            return self.result
 
         # --no-save 用于首次调试选择器；填写成功不代表已经保存草稿。
         if not self.settings.save_draft:
-            self.result.status = "filled_not_saved"
+            self.result.status = "needs_input" if errors else "filled_not_saved"
             return self.result
 
         self._save_draft()
@@ -1314,24 +1314,38 @@ class DewuAutomation:
             )
             numeric_indexes = {3, 4, 5, 6, 7, 8}
 
-            def matches(index: int, expected: str | None) -> bool:
+            def matches(index: int, actual: Any, expected: str | None) -> bool:
                 if expected is None:
                     return True
-                actual = result[index]
-                if actual == expected:
+                actual_text = str(actual)
+                if actual_text == expected:
                     return True
                 if index not in numeric_indexes:
                     return False
                 try:
-                    return Decimal(str(actual)) == Decimal(expected)
+                    return Decimal(actual_text) == Decimal(expected)
                 except (ArithmeticError, ValueError):
                     return False
 
             if isinstance(result, (list, tuple)) and len(result) >= len(values) and all(
-                matches(index, value)
+                matches(index, result[index], value)
                 for index, value in enumerate(values)
             ):
-                return
+                # A test double or a controlled component may report the desired
+                # values from JS while the live inputs have already been reset.
+                # Verify the rendered inputs when the row exposes that query path;
+                # otherwise the JS response is the only available confirmation.
+                try:
+                    live_inputs = row.eles("xpath:.//input")
+                except Exception:
+                    return
+                if not live_inputs or len(live_inputs) < len(values):
+                    return
+                if all(
+                    matches(index, _element_value(live_inputs[index]), value)
+                    for index, value in enumerate(values)
+                ):
+                    return
         except Exception:
             pass
 
@@ -1443,6 +1457,27 @@ class DewuAutomation:
             '请填写此商品的真实外网销售链接，如果是得物专供/得物首发商品，可如实备注或直接填写"无"'
         )
         self._fill_placeholder(placeholder, self.settings.external_link)
+        # 得物在失焦时才清除“不能为空”的异步校验提示；该字段是最后一个文本框。
+        self._blur_element(self._external_link_element())
+
+    def _external_link_element(self) -> Any:
+        placeholder = (
+            '请填写此商品的真实外网销售链接，如果是得物专供/得物首发商品，可如实备注或直接填写"无"'
+        )
+        return self._find_visible(
+            f"//main//input[@placeholder={_xpath_literal(placeholder)}]",
+            "外网链接输入框",
+        )
+
+    def _blur_element(self, element: Any) -> None:
+        try:
+            element.run_js("this.blur()")
+        except Exception:
+            # Some test doubles and older DrissionPage versions do not expose run_js.
+            try:
+                self.tab.run_js("document.activeElement && document.activeElement.blur()")
+            except Exception:
+                pass
 
     def _save_draft(self) -> None:
         # 保存前先清掉旧的成功提示，避免把上一次运行的反馈误认为本次保存成功。
@@ -1457,9 +1492,13 @@ class DewuAutomation:
         button = self._find_visible("//button[normalize-space(.)='保存草稿']", "保存草稿按钮")
         self._click(button)
 
-        def success_message() -> Any | None:
+        def success_message() -> str | None:
             messages = self._save_success_messages()
-            return messages[0] if messages else None
+            if messages:
+                return messages[0].text.strip()
+            if _is_save_result_page(str(self.tab.url), self._page_text()):
+                return "提交成功（保存草稿结果页）"
+            return None
 
         try:
             message = self._wait_until(success_message, timeout=20, message="没有捕获到保存草稿成功提示")
@@ -1471,14 +1510,20 @@ class DewuAutomation:
         # 即使草稿保存成功，submission 仍保持未尝试，因为程序明确不提交审核。
         self.result.submission = "not_attempted"
         self.result.page_url = str(self.tab.url)
-        self.result.warnings.append(f"保存反馈：{message.text.strip()}")
+        self.result.warnings.append(f"保存反馈：{message}")
         errors = self._read_visible_errors()
         if errors:
-            self.result.status = "needs_input"
-            self.result.validation_errors.extend(errors)
-            self.result.warnings.append("页面已出现保存反馈，但保存后仍检测到阻止项，请人工复核草稿")
-            return
+            for error in errors:
+                if error not in self.result.validation_errors:
+                    self.result.validation_errors.append(error)
+            self.result.warnings.append("草稿已保存；页面仍有提示，请人工复核后再决定是否提交审核")
         self.result.status = "draft_saved"
+
+    def _page_text(self) -> str:
+        try:
+            return str(self.tab.ele("tag:body", timeout=1).text)
+        except Exception:
+            return ""
 
     def _save_success_messages(self) -> list[Any]:
         # 不依赖具体 UI 框架的完整类名，只筛选常见消息容器中同时出现“保存/草稿”和“成功”的提示。
@@ -2722,6 +2767,16 @@ def _is_start_page_url(url: str) -> bool:
 def _is_detail_page_url(url: str) -> bool:
     parsed = urlparse(str(url))
     return parsed.hostname == TARGET_HOST and TARGET_PATH_FRAGMENT in parsed.path
+
+
+def _is_save_result_page(url: str, text: str) -> bool:
+    """Recognize the result page reached by the dedicated draft-save button."""
+    parsed = urlparse(str(url))
+    return (
+        parsed.hostname == TARGET_HOST
+        and SAVE_RESULT_PATH_FRAGMENT in parsed.path
+        and "提交成功" in str(text)
+    )
 
 
 def _new_detail_tabs(tabs: Sequence[Any], before_urls: set[str]) -> list[Any]:

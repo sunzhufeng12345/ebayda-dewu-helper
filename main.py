@@ -1,14 +1,134 @@
 """得物新品草稿自动化。
 
-常用命令（在本文件目录执行）：
-  .venv/bin/python main.py
-  .venv/bin/python main.py --execute --no-save
-  .venv/bin/python main.py --execute --no-save --skip-size-chart
-  .venv/bin/python main.py --execute
+======================================================================
+一、程序功能
+======================================================================
+    读取选品中心导出的商品 JSON 和图片 ZIP，自动操作得物商家后台的
+    “申请新品”页面（起始页 + 详情页），完成新品信息填写后只保存草稿，
+    从不提交审核。外网链接按业务规则固定填写“无”。
 
-前两条分别用于数据预检和首次页面填写调试；最后一条才会尝试保存草稿。
-外网链接按业务规则固定填写“无”。
-程序没有提交审核操作。
+======================================================================
+二、整体操作流程
+======================================================================
+
+    ---- 阶段一：人工准备 ----
+    1. 数据准备：把来源商品 JSON 和图片 ZIP 放到本目录
+       （未显式指定路径时，程序要求目录中恰好各有一个候选文件）。
+    2. 尺码辅助文件：在 配置文件/ 目录下按“尺码范围-尺码范围.xlsx”
+       命名规则放置“尺码推荐”“试穿报告”Excel（首尾尺码匹配来源商品）。
+    3. 启动浏览器：运行下方“常用命令”中的 Chrome 调试命令，在弹出的
+       独立 Chrome 窗口中登录得物账号并保持该窗口开启。
+
+    ---- 阶段二：数据预检（不操作浏览器）----
+    4. 解析 JSON 为不可变 ProductData，再依次叠加配置文件与命令行属性覆盖。
+    5. 解压图片 ZIP，按页面用途归类为：方图、各颜色轮播图、商品展示、
+       细节呈现、穿搭效果。
+    6. 校验图片格式（jpg/jpeg/png）、数量上限、单文件大小；
+       校验端口、超时时间、出价类型、证明渠道等运行参数。
+    7. 按商品首尾尺码匹配“尺码推荐”“试穿报告”Excel 文件路径。
+    8. 输出预检摘要 JSON：标题、SKU、图片数量、警告、下一步动作，
+       供人工核对后再决定是否加 --execute。
+
+    ---- 阶段三：浏览器填写（--execute）----
+    9. 连接 Chrome 远程调试端口，找到或打开得物“申请新品”起始页
+       （找到多个候选页面时停止，避免误用半填写页面）。
+    10. 起始页流程（DewuStartPage）：
+        校验页面空白 -> 选择品牌 -> 选择类目(服装>>上衣>>卫衣)
+        -> 选择适用人群(通用) -> 上传第一张方图 -> 校验商品链接为空
+        -> 点击“创建新品发布申请”打开详情页。
+    11. 详情页流程（DewuAutomation）：
+        a. 校验页面身份：域名、路径片段、“保存草稿/提交审核”按钮、
+           “申请新品”文案（只用来确认页面类型，从不点击提交审核）。
+        b. 基础信息：适用人群、货号、发售价格+证明渠道、
+           发售日期（固定当天）+证明渠道。
+        c. 结构化标题：卖点提炼、类目片段，校验总长度 16-60 字符。
+        d. 属性：领型/衣长/版型/厚度/面料/是否加绒等，必填字段
+           缺失即中止，非必填字段失败仅记警告继续。
+        e. 颜色：核对页面已有前缀，补空行、删多余空行，绝不覆盖
+           来源之外的非空颜色。
+        f. 尺码表弹窗：按 SIZE_CHART 配置测量列，对齐行数后逐行
+           填写尺码名和测量值，保存后勾选商品实际销售尺码。
+        g. 上传尺码推荐、试穿报告 Excel（若配置了辅助文件）。
+        h. SKU 表：按“颜色×尺码”逐页匹配来源记录，逐行填写
+           编码/辅助编码/出价类型/出价/库存/包装长宽高重量。
+        i. 图片：按颜色逐张上传轮播图，再上传商品展示/细节呈现/
+           穿搭效果三个区块。
+        j. 补充信息：外链固定填写“无”。
+    12. 保存前统一读取页面可见的表单错误；无错误才允许保存。
+    13. --no-save 时停在保存前；否则点击“保存草稿”并等待成功提示。
+
+    ---- 阶段四：结果输出 ----
+    14. 输出 JSON 结果：status（draft_saved / filled_not_saved /
+        needs_input / paused_for_user / not_saved 等）、
+        completed_sections 已完成阶段、上传计数、SKU 行数。
+    15. 退出码：0=成功；2=数据或自动化异常；3=页面校验未通过需人工处理；
+        4=未预期错误；130=用户中止。
+
+======================================================================
+三、常用命令（在本文件目录执行）
+======================================================================
+    .venv/bin/python main.py                                  # 仅数据预检
+    .venv/bin/python main.py --execute --no-save              # 预检+填写，停在保存前
+    .venv/bin/python main.py --execute --no-save --skip-size-chart  # 跳过尺码表调试
+    .venv/bin/python main.py --execute                        # 预检+填写+保存草稿
+
+    前两条分别用于数据预检和首次页面填写调试；最后一条才会尝试保存草稿。
+    浏览器调试启动命令（由程序在端口未开放时给出）：
+      open -na "Google Chrome" --args --remote-debugging-port=9222 \
+           --user-data-dir="<本目录>/.chrome-profile"
+
+======================================================================
+四、参数来源说明
+======================================================================
+    程序中出现的参数按来源分成三类，想调整哪一类就去对应的地方改：
+
+    (1) 通用可配置参数（运行时可改，不写死）
+        - 命令行参数（main.py 的 parse_args()）：
+              --json / --images / --work-dir / --port / --offer-type /
+              --price-proof-source / --release-proof-source / --attribute /
+              --execute / --no-save / --skip-size-chart / --timeout
+        - 模块“配置区”常量（main.py 顶部）：
+              DEFAULT_OFFER_TYPE / DEFAULT_PRICE_PROOF_SOURCE /
+              DEFAULT_RELEASE_PROOF_SOURCE / PACKAGE_DEFAULTS / SIZE_CHART /
+              ATTRIBUTE_OVERRIDES（ATTRIBUTE_OVERRIDES 也可逐条用
+              --attribute 覆盖，命令行优先级更高）
+        - 配置文件/ 目录下的尺码辅助 Excel（尺码推荐/试穿报告），
+          按商品首尾尺码自动匹配文件名。
+
+    (2) 写死参数（固定值，与来源 JSON 无关，需改代码）
+        - FIXED_EXTERNAL_LINK="无"（models.py）：外链固定填“无”
+        - FIXED_SKU_INVENTORY=1000（models.py）：每条 SKU 库存固定 1000
+        - 适用人群固定“通用”（models.py 的 audience）
+        - SKU 出价固定等于吊牌价（忽略来源 skus[].price）
+        - START_CATEGORY_PATH=("服装","上衣","卫衣")：起始页类目写死
+        - START_AUDIENCE="通用"：起始页适用人群写死
+        - SIZE_CHART 的尺码测量值：当前是宽松卫衣的临时估算值，
+          正式商品应替换为实测值（SIZE_CHART 为空时只填尺码名）
+        - PACKAGE_DEFAULTS 包装长宽高重量、START_PAGE_URL、图片数量/大小
+          上限（MAX_CAROUSEL_PER_COLOR、MAX_DETAIL_FILE_BYTES 等）
+
+    (3) 从来源 JSON 字段来的参数（详细对照见 models.py 顶部“对照表”）
+        - code           -> 商品编码 + 图片工作目录名
+        - itemNumber     -> 货号（页面货号输入框）
+        - name           -> 商品名，用于结构化标题与属性推导
+        - categoryPath   -> 类目路径（预检展示；起始页类目仍按写死路径点选）
+        - imageSets[].shopName -> 品牌
+        - imageSets[].platform=="得物" -> 图片套图选择
+        - attributes[]   -> 页面属性、吊牌价(diaopaijia)、上市时间(sssj)、
+                            成分含量(caizhi+subValueNumber)、
+                            设计元素(leixing-pinpai 的 subValueText)
+        - skus[]         -> 颜色、尺码、SKU 编码(code)、辅助编码(supplierSkuCode)
+        - imageSets[] 图片字段 -> 方图/详情图/第一张方图/第一张长图/颜色平铺图
+
+======================================================================
+五、安全与约束
+======================================================================
+    - 程序从不点击“提交审核”，submission 始终保持 not_attempted。
+    - 程序绝不删除或覆盖已有的非空内容；遇到任何不一致一律报错并
+      等待人工清理，避免误改人工草稿。
+    - 图片上传均为幂等操作：数量已一致则复用，部分存在则暂停要求人工清理。
+    - 所有异常都转换为结构化 JSON 输出，并通过 completed_sections
+      告诉人工已经稳定完成到哪一步。
 """
 
 from __future__ import annotations
@@ -35,6 +155,12 @@ from models import (
     load_product,
 )
 
+
+# =====================================================================
+# 以下是本模块的“配置区”：所有可调整的业务默认值和页面常量集中放在这里，
+# 与下方负责“解析来源数据”的 models.py 逻辑彻底分离。
+# 如果商家账号的口径不同，只需要改这里的默认值，来源 JSON 的解析逻辑不变。
+# =====================================================================
 
 # 下面这些值是得物页面的业务默认值，不是来源商品事实；如果商家账号的口径不同，
 # 只需要在这里调整默认值，来源 JSON 的解析逻辑不需要跟着修改。
@@ -96,7 +222,13 @@ class AutomationError(RuntimeError):
 
 @dataclass(frozen=True)
 class RunSettings:
-    # 一次浏览器任务的运行参数。冻结数据类可避免填写过程中被意外改写。
+    """一次浏览器任务的运行参数。
+
+    用 frozen=True 冻结成不可变对象，避免填写流程中被某个步骤意外改写，
+    保证起始页与详情页两个阶段读到完全一致的配置。字段来源：main() 中
+    把命令行参数、模块默认常量（PACKAGE_DEFAULTS / SIZE_CHART）和
+    解析出的外链、辅助文件路径汇总后一次性构造。
+    """
     debugger_port: int
     offer_type: str
     price_proof_source: str
@@ -114,7 +246,16 @@ class RunSettings:
 
 @dataclass
 class RunResult:
-    # 运行结果既用于终端 JSON 输出，也用于失败时告诉人工已经完成到哪一步。
+    """一次运行的累计结果。
+
+    这个对象同时承担两种职责：
+    1) 作为 JSON 输出到终端的结构化结果（main() 末尾 asdict(result)）；
+    2) 作为失败时的“进度报告”：completed_sections 记录已经稳定完成的
+       大阶段（new_product_start / title / basic_info / sales_info /
+       media / supplement），异常时据此告诉人工已经填到哪一步。
+    该对象在浏览器阶段被持续原地修改（不是 frozen），因此各处都直接
+    append/更新字段。
+    """
     status: str = "not_started"
     completed_sections: list[str] = field(default_factory=list)
     validation_errors: list[str] = field(default_factory=list)
@@ -136,7 +277,14 @@ class RunResult:
 
 
 class DewuStartPage:
-    # 起始页使用 Element UI 表单结构，与详情页的 main 内容区定位逻辑分开维护。
+    """“申请新品”起始页的页面操作封装。
+
+    起始页使用 Element UI 表单结构，与详情页的 main 内容区定位逻辑分开维护。
+    该类只负责：验证起始页是空白状态 -> 选择品牌/类目/适用人群 -> 上传第一张
+    方图 -> 点击“创建新品发布申请”，并返回新打开的详情页。它不做任何保存
+    草稿或提交审核操作，属于流程的最前置一步。
+    """
+
     def __init__(
         self,
         browser: Any,
@@ -152,7 +300,11 @@ class DewuStartPage:
         self.result = result
 
     def run(self) -> Any:
-        # 起始页完成后只负责创建申请并返回新的详情页，不保存草稿或提交审核。
+        """按顺序执行起始页的完整填写流程，最后返回新创建的详情页 tab。
+
+        返回的详情页 tab 会继续交给 DewuAutomation 填写；本方法执行期间
+        只创建申请，不保存草稿、不提交审核。
+        """
         self._verify_blank()
         self._select_brand()
         self._select_category()
@@ -439,7 +591,7 @@ class DewuStartPage:
         raise AutomationError(message)
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     # 命令行只负责收集参数；文件存在性和数值范围在主流程中统一校验。
     parser = argparse.ArgumentParser(
         description="读取选品中心 JSON 和图片 ZIP，填写得物新品页面并仅保存草稿。",
@@ -474,12 +626,18 @@ def parse_args() -> argparse.Namespace:
         help="跳过尺码表，仅用于暂不确定尺码表逻辑时继续调试后续步骤",
     )
     parser.add_argument("--timeout", type=float, default=12.0, help="普通页面操作超时秒数")
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
 class DewuAutomation:
-    # 该类只负责“已经准备好的商品数据”如何映射到当前得物页面，
-    # 不负责解析 JSON 或解压 ZIP，从而把数据问题和页面问题分开定位。
+    """“申请新品”详情页（spuEdit）的页面操作封装。
+
+    该类只负责“已经准备好的商品数据”如何映射到当前得物页面，不负责
+    解析 JSON 或解压 ZIP，从而把数据问题和页面问题分开定位。输入：
+    已经由 DewuStartPage 创建好的详情页 tab、不可变 ProductData、
+    已解析的 MediaFiles、RunSettings 和可累积的 RunResult。
+    """
+
     def __init__(
         self,
         tab: Any,
@@ -495,8 +653,13 @@ class DewuAutomation:
         self.result = result
 
     def run(self) -> RunResult:
-        # 页面填写按“安全检查 -> 基础信息 -> 销售规格 -> 图片 -> 补充信息”的顺序进行。
-        # 每完成一个大区块就记录标记，异常时可以判断最后一个已确认完成的阶段。
+        """按固定顺序执行详情页的完整填写流程。
+
+        页面填写顺序：安全检查 -> 基础信息 -> 销售规格 -> 图片 -> 补充信息。
+        每完成一个大区块就写入 result.completed_sections 记录标记，异常时
+        可以据此判断最后一个已确认完成的阶段，避免重复或遗漏。
+        最后统一读取页面可见错误；无错误且允许保存时才点击“保存草稿”。
+        """
         self.result.status = "running"
         self.result.page_url = str(self.tab.url)
         self._verify_target_page()
@@ -833,6 +996,11 @@ class DewuAutomation:
             ("尺码推荐", getattr(self.settings, "size_recommendation_file", None)),
             ("试穿报告", getattr(self.settings, "try_on_report_file", None)),
         )
+        # 直接调用 DewuAutomation 的单元测试或旧草稿调试可能没有配置辅助表；
+        # 主入口在浏览器连接前已经强制解析真实文件，因此这里仅兼容这种测试场景。
+        if all(file_path is None for _, file_path in files):
+            self.result.warnings.append("未配置尺码推荐/试穿报告 Excel，已跳过辅助表上传")
+            return
         for label, file_path in files:
             if file_path is None:
                 raise AutomationError(f"没有配置{label} Excel 文件")
@@ -2214,9 +2382,19 @@ def _chrome_start_command(port: int) -> str:
     )
 
 
-def main() -> int:
-    # 主入口先完成无浏览器的数据预检；只有传入 --execute 才连接 Chrome。
-    args = parse_args()
+def main(argv: Sequence[str] | None = None) -> int:
+    """程序总入口。
+
+    分两个阶段运行：
+    1. 无浏览器阶段（预检）：解析 JSON -> 叠加属性覆盖 -> 解压并解析图片
+       -> 校验图片与运行参数 -> 匹配尺码辅助 Excel -> 打印预检摘要。
+       只有传入 --execute 才继续，否则直接返回 0。
+    2. 浏览器阶段（执行）：连接 Chrome -> 起始页创建申请 -> 详情页填写并
+       保存草稿 -> 输出结构化 JSON 结果。
+    任何异常都被转换为带 status 的 JSON 输出到 stderr，并返回对应退出码：
+       0=成功  2=数据/自动化异常  3=页面校验未通过  4=未预期错误  130=中止
+    """
+    args = parse_args(argv)
     script_dir = Path(__file__).resolve().parent
     result: RunResult | None = None
     try:

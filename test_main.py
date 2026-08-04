@@ -269,6 +269,58 @@ class WorkflowOrderTests(unittest.TestCase):
 
         self.assertLess(events.index("basic fields"), events.index("title"))
 
+    def test_save_draft_is_attempted_after_nonblocking_page_warnings(self) -> None:
+        automation = object.__new__(main.DewuAutomation)
+        automation.tab = SimpleNamespace(
+            url="https://stark.dewu.com/vueProduct/newProductApply/spuEdit/operation/1"
+        )
+        automation.settings = SimpleNamespace(skip_size_chart=False, save_draft=True)
+        automation.result = main.RunResult()
+        for name in (
+            "_verify_target_page",
+            "_fill_basic_fields",
+            "_fill_title",
+            "_fill_attributes",
+            "_fill_colors",
+            "_fill_sizes",
+            "_upload_size_guidance",
+            "_fill_skus",
+            "_upload_carousel",
+            "_upload_detail_sections",
+            "_fill_external_link",
+        ):
+            setattr(automation, name, lambda: None)
+        automation._read_visible_errors = lambda: ["销售规格 填写有误"]
+        save_calls: list[bool] = []
+
+        def save() -> None:
+            save_calls.append(True)
+            automation.result.status = "draft_saved"
+
+        automation._save_draft = save
+
+        automation.run()
+
+        self.assertEqual(save_calls, [True])
+        self.assertEqual(automation.result.status, "draft_saved")
+        self.assertEqual(automation.result.validation_errors, ["销售规格 填写有误"])
+
+
+class SaveResultTests(unittest.TestCase):
+    def test_result_page_feedback_is_recognized_as_draft_save(self) -> None:
+        self.assertTrue(
+            main._is_save_result_page(
+                "https://stark.dewu.com/main/newProductApply/spuEdit/result",
+                "得物商家后台 提交成功",
+            )
+        )
+        self.assertFalse(
+            main._is_save_result_page(
+                "https://stark.dewu.com/main/newProductApply/submitApply",
+                "得物商家后台 提交成功",
+            )
+        )
+
 
 class FormTextFieldTests(unittest.TestCase):
     def test_form_item_accepts_a_generic_text_label(self) -> None:
@@ -541,6 +593,58 @@ class SizeChartRowTests(unittest.TestCase):
         self.assertEqual(inputs[1].value, "AUX")
         self.assertEqual(inputs[3].value, "399")
         self.assertEqual(inputs[4].value, "1000")
+
+    def test_sku_js_write_is_verified_and_falls_back_when_vue_resets_fields(self) -> None:
+        inputs = [_FocusRequiredInput() for _ in range(9)]
+
+        class JsRow(_FakeSizeDataRow):
+            def run_js(self, _script: str) -> list[str]:
+                return ["CODE", "AUX", "现货", "399", "1000", "42", "38", "5", "0.8"]
+
+        row = JsRow(inputs)
+        automation = object.__new__(main.DewuAutomation)
+        automation.settings = SimpleNamespace(
+            offer_type="现货",
+            package_defaults={
+                "length_cm": "42",
+                "width_cm": "38",
+                "height_cm": "5",
+                "weight_kg": "0.8",
+            },
+        )
+        automation._select_from_input = lambda *_args, **_kwargs: True
+        sku = SimpleNamespace(
+            color="白色",
+            size="M",
+            product_code="CODE",
+            auxiliary_code="AUX",
+            offer_amount=Decimal("399"),
+            inventory=1000,
+        )
+
+        automation._fill_sku_row(row, sku)
+
+        self.assertEqual([item.value for item in inputs], ["CODE", "AUX", "", "399", "1000", "42", "38", "5", "0.8"])
+
+
+class ExternalLinkTests(unittest.TestCase):
+    def test_external_link_blurs_after_writing_fixed_no_value(self) -> None:
+        automation = object.__new__(main.DewuAutomation)
+        automation.settings = SimpleNamespace(external_link="无")
+        element = object()
+        filled: list[tuple[str, str]] = []
+        blurred: list[object] = []
+        automation._fill_placeholder = lambda placeholder, value: filled.append((placeholder, value))
+        automation._external_link_element = lambda: element
+        automation._blur_element = lambda target: blurred.append(target)
+
+        automation._fill_external_link()
+
+        self.assertEqual(filled, [(
+            '请填写此商品的真实外网销售链接，如果是得物专供/得物首发商品，可如实备注或直接填写"无"',
+            "无",
+        )])
+        self.assertEqual(blurred, [element])
 
     def test_size_rows_wait_for_async_initial_row(self) -> None:
         automation = object.__new__(main.DewuAutomation)

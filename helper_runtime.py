@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import socket
 import subprocess
 import sys
@@ -23,7 +24,11 @@ DOWNLOAD_CHUNK_BYTES = 64 * 1024
 MAX_PRODUCT_JSON_BYTES = 10 * 1024 * 1024
 MAX_IMAGES_ZIP_BYTES = 2 * 1024 * 1024 * 1024
 SAFE_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
-TRUSTED_DOWNLOAD_HOST = "www.ebayda.com"
+TRUSTED_DOWNLOAD_ORIGINS = {
+    ("https", "www.ebayda.com", None),
+    ("https", "www.ebayda.com", 443),
+    ("http", "101.34.90.101", 10112),
+}
 
 
 class TaskExecutionError(RuntimeError):
@@ -150,6 +155,45 @@ def shop_profile(app_root: Path, shop_id: str) -> Path:
     return app_root / "profiles" / shop_id
 
 
+def cleanup_task_files(app_root: Path, job_id: str) -> None:
+    """Delete one task's downloaded files without touching shop Profiles."""
+    if not SAFE_ID_PATTERN.fullmatch(job_id):
+        raise TaskExecutionError("无法清理任务文件：job_id 格式错误")
+    root = app_root.expanduser().resolve()
+    jobs_root = (root / "jobs").resolve()
+    target = (jobs_root / job_id).resolve()
+    if target.parent != jobs_root:
+        raise TaskExecutionError("无法清理任务文件：路径越界")
+    if not target.exists() and not target.is_symlink():
+        return
+    try:
+        if target.is_symlink() or target.is_file():
+            target.unlink()
+        else:
+            shutil.rmtree(target)
+    except OSError as error:
+        raise TaskExecutionError("清理任务临时文件失败") from error
+    try:
+        if jobs_root.is_dir() and not any(jobs_root.iterdir()):
+            jobs_root.rmdir()
+    except OSError:
+        pass
+
+
+def cleanup_stale_task_files(app_root: Path) -> None:
+    """Clear only the task cache left by an interrupted previous run."""
+    root = app_root.expanduser().resolve()
+    jobs_root = (root / "jobs").resolve()
+    if not jobs_root.exists() and not jobs_root.is_symlink():
+        return
+    if jobs_root.is_symlink():
+        raise TaskExecutionError("任务目录不能是符号链接")
+    try:
+        shutil.rmtree(jobs_root)
+    except OSError as error:
+        raise TaskExecutionError("清理残留任务文件失败") from error
+
+
 def find_chrome_executable(candidates: Sequence[Path] | None = None) -> Path:
     if candidates is None:
         if sys.platform == "win32":
@@ -200,6 +244,7 @@ def ensure_chrome(
     command = [
         str(chrome),
         "--remote-debugging-port=0",
+        "--remote-allow-origins=*",
         f"--user-data-dir={profile_dir}",
         "--no-first-run",
         "--no-default-browser-check",
@@ -295,11 +340,10 @@ def _trusted_resource_url(value: object, job_id: str, resource: str) -> str:
         raise TaskExecutionError("任务数据错误：下载地址格式错误") from error
     expected_path = f"/api/automation/jobs/{job_id}/{resource}"
     if (
-        parsed.scheme.casefold() != "https"
-        or parsed.hostname != TRUSTED_DOWNLOAD_HOST
+        (parsed.scheme.casefold(), parsed.hostname, port)
+        not in TRUSTED_DOWNLOAD_ORIGINS
         or parsed.username is not None
         or parsed.password is not None
-        or port not in (None, 443)
         or parsed.path != expected_path
         or parsed.params
         or parsed.fragment

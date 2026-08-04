@@ -83,6 +83,29 @@ class ClaimedJobTests(unittest.TestCase):
         self.assertEqual(job.shop_id, "101")
         self.assertEqual(job.action, "save_draft")
 
+    def test_tencent_cloud_payload_is_accepted(self) -> None:
+        job = helper_runtime.ClaimedJob.from_payload(
+            valid_payload(
+                product_json_url=(
+                    "http://101.34.90.101:10112/api/automation/jobs/"
+                    "job_1/product-json"
+                ),
+                images_zip_url=(
+                    "http://101.34.90.101:10112/api/automation/jobs/"
+                    "job_1/images"
+                ),
+            )
+        )
+
+        self.assertEqual(
+            job.product_json_url,
+            "http://101.34.90.101:10112/api/automation/jobs/job_1/product-json",
+        )
+        self.assertEqual(
+            job.images_zip_url,
+            "http://101.34.90.101:10112/api/automation/jobs/job_1/images",
+        )
+
     def test_urls_must_be_https_ebayda_job_resources(self) -> None:
         invalid_urls = (
             "http://www.ebayda.com/api/automation/jobs/job_1/product-json",
@@ -200,6 +223,37 @@ class DownloadTests(unittest.TestCase):
             self.assertFalse(
                 (root / "jobs" / job.job_id / "product.json.part").exists()
             )
+
+
+class TaskCleanupTests(unittest.TestCase):
+    def test_cleanup_task_files_removes_task_artifacts_but_keeps_profile(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            task_dir = root / "jobs" / "job_1"
+            task_dir.mkdir(parents=True)
+            (task_dir / "product.json").write_text("{}", encoding="utf-8")
+            (task_dir / "images.zip").write_bytes(b"zip")
+            (task_dir / "work" / "PB26XY01LJB-ZB9603").mkdir(parents=True)
+            profile = root / "profiles" / "101"
+            profile.mkdir(parents=True)
+            (profile / "Cookies").write_bytes(b"keep")
+
+            helper_runtime.cleanup_task_files(root, "job_1")
+
+            self.assertFalse(task_dir.exists())
+            self.assertEqual((profile / "Cookies").read_bytes(), b"keep")
+
+    def test_cleanup_stale_task_files_removes_only_jobs(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "jobs" / "job_1").mkdir(parents=True)
+            (root / "jobs" / "job_2").mkdir()
+            (root / "profiles" / "101").mkdir(parents=True)
+
+            helper_runtime.cleanup_stale_task_files(root)
+
+            self.assertFalse((root / "jobs").exists())
+            self.assertTrue((root / "profiles" / "101").is_dir())
 
 
 class NetworkPolicyTests(unittest.TestCase):
@@ -359,6 +413,7 @@ class ChromeRuntimeTests(unittest.TestCase):
         self.assertEqual(len(commands), 1)
         self.assertIn(f"--user-data-dir={profile}", commands[0])
         self.assertIn("--remote-debugging-port=0", commands[0])
+        self.assertIn("--remote-allow-origins=*", commands[0])
         self.assertIn("--no-first-run", commands[0])
         self.assertIn(helper_runtime.dewu_main.START_PAGE_URL, commands[0])
 

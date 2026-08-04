@@ -1,14 +1,134 @@
 """得物新品草稿自动化。
 
-常用命令（在本文件目录执行）：
-  .venv/bin/python main.py
-  .venv/bin/python main.py --execute --no-save
-  .venv/bin/python main.py --execute --no-save --skip-size-chart
-  .venv/bin/python main.py --execute
+======================================================================
+一、程序功能
+======================================================================
+    读取选品中心导出的商品 JSON 和图片 ZIP，自动操作得物商家后台的
+    “申请新品”页面（起始页 + 详情页），完成新品信息填写后只保存草稿，
+    从不提交审核。外网链接按业务规则固定填写“无”。
 
-前两条分别用于数据预检和首次页面填写调试；最后一条才会尝试保存草稿。
-外网链接按业务规则固定填写“无”。
-程序没有提交审核操作。
+======================================================================
+二、整体操作流程
+======================================================================
+
+    ---- 阶段一：人工准备 ----
+    1. 数据准备：把来源商品 JSON 和图片 ZIP 放到本目录
+       （未显式指定路径时，程序要求目录中恰好各有一个候选文件）。
+    2. 尺码辅助文件：在 配置文件/ 目录下按“尺码范围-尺码范围.xlsx”
+       命名规则放置“尺码推荐”“试穿报告”Excel（首尾尺码匹配来源商品）。
+    3. 启动浏览器：运行下方“常用命令”中的 Chrome 调试命令，在弹出的
+       独立 Chrome 窗口中登录得物账号并保持该窗口开启。
+
+    ---- 阶段二：数据预检（不操作浏览器）----
+    4. 解析 JSON 为不可变 ProductData，再依次叠加配置文件与命令行属性覆盖。
+    5. 解压图片 ZIP，按页面用途归类为：方图、各颜色轮播图、商品展示、
+       细节呈现、穿搭效果。
+    6. 校验图片格式（jpg/jpeg/png）、数量上限、单文件大小；
+       校验端口、超时时间、出价类型、证明渠道等运行参数。
+    7. 按商品首尾尺码匹配“尺码推荐”“试穿报告”Excel 文件路径。
+    8. 输出预检摘要 JSON：标题、SKU、图片数量、警告、下一步动作，
+       供人工核对后再决定是否加 --execute。
+
+    ---- 阶段三：浏览器填写（--execute）----
+    9. 连接 Chrome 远程调试端口，找到或打开得物“申请新品”起始页
+       （找到多个候选页面时停止，避免误用半填写页面）。
+    10. 起始页流程（DewuStartPage）：
+        校验页面空白 -> 选择品牌 -> 选择类目(服装>>上衣>>卫衣)
+        -> 选择适用人群(通用) -> 上传第一张方图 -> 校验商品链接为空
+        -> 点击“创建新品发布申请”打开详情页。
+    11. 详情页流程（DewuAutomation）：
+        a. 校验页面身份：域名、路径片段、“保存草稿/提交审核”按钮、
+           “申请新品”文案（只用来确认页面类型，从不点击提交审核）。
+        b. 基础信息：适用人群、货号、发售价格+证明渠道、
+           发售日期（固定当天）+证明渠道。
+        c. 结构化标题：卖点提炼、类目片段，校验总长度 16-60 字符。
+        d. 属性：领型/衣长/版型/厚度/面料/是否加绒等，必填字段
+           缺失即中止，非必填字段失败仅记警告继续。
+        e. 颜色：核对页面已有前缀，补空行、删多余空行，绝不覆盖
+           来源之外的非空颜色。
+        f. 尺码表弹窗：按 SIZE_CHART 配置测量列，对齐行数后逐行
+           填写尺码名和测量值，保存后勾选商品实际销售尺码。
+        g. 上传尺码推荐、试穿报告 Excel（若配置了辅助文件）。
+        h. SKU 表：按“颜色×尺码”逐页匹配来源记录，逐行填写
+           编码/辅助编码/出价类型/出价/库存/包装长宽高重量。
+        i. 图片：按颜色逐张上传轮播图，再上传商品展示/细节呈现/
+           穿搭效果三个区块。
+        j. 补充信息：外链固定填写“无”。
+    12. 保存前统一读取页面可见的表单错误；无错误才允许保存。
+    13. --no-save 时停在保存前；否则点击“保存草稿”并等待成功提示。
+
+    ---- 阶段四：结果输出 ----
+    14. 输出 JSON 结果：status（draft_saved / filled_not_saved /
+        needs_input / paused_for_user / not_saved 等）、
+        completed_sections 已完成阶段、上传计数、SKU 行数。
+    15. 退出码：0=成功；2=数据或自动化异常；3=页面校验未通过需人工处理；
+        4=未预期错误；130=用户中止。
+
+======================================================================
+三、常用命令（在本文件目录执行）
+======================================================================
+    .venv/bin/python main.py                                  # 仅数据预检
+    .venv/bin/python main.py --execute --no-save              # 预检+填写，停在保存前
+    .venv/bin/python main.py --execute --no-save --skip-size-chart  # 跳过尺码表调试
+    .venv/bin/python main.py --execute                        # 预检+填写+保存草稿
+
+    前两条分别用于数据预检和首次页面填写调试；最后一条才会尝试保存草稿。
+    浏览器调试启动命令（由程序在端口未开放时给出）：
+      open -na "Google Chrome" --args --remote-debugging-port=9222 \
+           --user-data-dir="<本目录>/.chrome-profile"
+
+======================================================================
+四、参数来源说明
+======================================================================
+    程序中出现的参数按来源分成三类，想调整哪一类就去对应的地方改：
+
+    (1) 通用可配置参数（运行时可改，不写死）
+        - 命令行参数（main.py 的 parse_args()）：
+              --json / --images / --work-dir / --port / --offer-type /
+              --price-proof-source / --release-proof-source / --attribute /
+              --execute / --no-save / --skip-size-chart / --timeout
+        - 模块“配置区”常量（main.py 顶部）：
+              DEFAULT_OFFER_TYPE / DEFAULT_PRICE_PROOF_SOURCE /
+              DEFAULT_RELEASE_PROOF_SOURCE / PACKAGE_DEFAULTS / SIZE_CHART /
+              ATTRIBUTE_OVERRIDES（ATTRIBUTE_OVERRIDES 也可逐条用
+              --attribute 覆盖，命令行优先级更高）
+        - 配置文件/ 目录下的尺码辅助 Excel（尺码推荐/试穿报告），
+          按商品首尾尺码自动匹配文件名。
+
+    (2) 写死参数（固定值，与来源 JSON 无关，需改代码）
+        - FIXED_EXTERNAL_LINK="无"（models.py）：外链固定填“无”
+        - FIXED_SKU_INVENTORY=1000（models.py）：每条 SKU 库存固定 1000
+        - 适用人群固定“通用”（models.py 的 audience）
+        - SKU 出价固定等于吊牌价（忽略来源 skus[].price）
+        - START_CATEGORY_PATH=("服装","上衣","卫衣")：起始页类目写死
+        - START_AUDIENCE="通用"：起始页适用人群写死
+        - SIZE_CHART 的尺码测量值：当前是宽松卫衣的临时估算值，
+          正式商品应替换为实测值（SIZE_CHART 为空时只填尺码名）
+        - PACKAGE_DEFAULTS 包装长宽高重量、START_PAGE_URL、图片数量/大小
+          上限（MAX_CAROUSEL_PER_COLOR、MAX_DETAIL_FILE_BYTES 等）
+
+    (3) 从来源 JSON 字段来的参数（详细对照见 models.py 顶部“对照表”）
+        - code           -> 商品编码 + 图片工作目录名
+        - itemNumber     -> 货号（页面货号输入框）
+        - name           -> 商品名，用于结构化标题与属性推导
+        - categoryPath   -> 类目路径（预检展示；起始页类目仍按写死路径点选）
+        - imageSets[].shopName -> 品牌
+        - imageSets[].platform=="得物" -> 图片套图选择
+        - attributes[]   -> 页面属性、吊牌价(diaopaijia)、上市时间(sssj)、
+                            成分含量(caizhi+subValueNumber)、
+                            设计元素(leixing-pinpai 的 subValueText)
+        - skus[]         -> 颜色、尺码、SKU 编码(code)、辅助编码(supplierSkuCode)
+        - imageSets[] 图片字段 -> 方图/详情图/第一张方图/第一张长图/颜色平铺图
+
+======================================================================
+五、安全与约束
+======================================================================
+    - 程序从不点击“提交审核”，submission 始终保持 not_attempted。
+    - 程序绝不删除或覆盖已有的非空内容；遇到任何不一致一律报错并
+      等待人工清理，避免误改人工草稿。
+    - 图片上传均为幂等操作：数量已一致则复用，部分存在则暂停要求人工清理。
+    - 所有异常都转换为结构化 JSON 输出，并通过 completed_sections
+      告诉人工已经稳定完成到哪一步。
 """
 
 from __future__ import annotations
@@ -36,18 +156,24 @@ from models import (
 )
 
 
+# =====================================================================
+# 以下是本模块的“配置区”：所有可调整的业务默认值和页面常量集中放在这里，
+# 与下方负责“解析来源数据”的 models.py 逻辑彻底分离。
+# 如果商家账号的口径不同，只需要改这里的默认值，来源 JSON 的解析逻辑不变。
+# =====================================================================
+
 # 下面这些值是得物页面的业务默认值，不是来源商品事实；如果商家账号的口径不同，
 # 只需要在这里调整默认值，来源 JSON 的解析逻辑不需要跟着修改。
-DEFAULT_OFFER_TYPE = "现货"
+DEFAULT_OFFER_TYPE = "直发"
 DEFAULT_PRICE_PROOF_SOURCE = "品牌官网"
 DEFAULT_RELEASE_PROOF_SOURCE = "品牌官网"
 
-# 同一商品所有 SKU 共用的包装信息。值为 None 时保留页面为空，不会凭空猜测尺寸或重量。
+# 同一商品所有 SKU 共用的固定包装信息。
 PACKAGE_DEFAULTS: Mapping[str, str | None] = {
-    "length_cm": None,
-    "width_cm": None,
-    "height_cm": None,
-    "weight_kg": None,
+    "length_cm": "42",
+    "width_cm": "38",
+    "height_cm": "5",
+    "weight_kg": "0.8",
 }
 
 # 当前来源数据只提供尺码名称，没有提供实测参数。下面先按宽松卫衣的常见
@@ -73,6 +199,16 @@ START_PAGE_URL = f"https://{TARGET_HOST}{START_PATH_FRAGMENT}?noLayout=1"
 START_CATEGORY_PATH = ("服装", "上衣", "卫衣")
 START_AUDIENCE = "通用"
 TARGET_PATH_FRAGMENT = "/vueProduct/newProductApply/spuEdit/operation/"
+SAVE_RESULT_PATH_FRAGMENT = "/main/newProductApply/spuEdit/result"
+CONFIG_ROOT = Path(__file__).resolve().parent / "配置文件"
+SIZE_GUIDANCE_BUTTONS: Mapping[str, str] = {
+    "尺码推荐": "添加尺码推荐",
+    "试穿报告": "添加试穿报告",
+}
+SIZE_GUIDANCE_RESULT_KEYS: Mapping[str, str] = {
+    "尺码推荐": "size_recommendation",
+    "试穿报告": "try_on_report",
+}
 MAX_CAROUSEL_PER_COLOR = 5
 MAX_PRODUCT_DISPLAY_IMAGES = 20
 MAX_DETAIL_IMAGES = 8
@@ -87,7 +223,13 @@ class AutomationError(RuntimeError):
 
 @dataclass(frozen=True)
 class RunSettings:
-    # 一次浏览器任务的运行参数。冻结数据类可避免填写过程中被意外改写。
+    """一次浏览器任务的运行参数。
+
+    用 frozen=True 冻结成不可变对象，避免填写流程中被某个步骤意外改写，
+    保证起始页与详情页两个阶段读到完全一致的配置。字段来源：main() 中
+    把命令行参数、模块默认常量（PACKAGE_DEFAULTS / SIZE_CHART）和
+    解析出的外链、辅助文件路径汇总后一次性构造。
+    """
     debugger_port: int
     offer_type: str
     price_proof_source: str
@@ -99,11 +241,22 @@ class RunSettings:
     upload_timeout: float = 120.0
     package_defaults: Mapping[str, str | None] = field(default_factory=lambda: PACKAGE_DEFAULTS)
     size_chart: Mapping[str, Mapping[str, str]] = field(default_factory=lambda: SIZE_CHART)
+    size_recommendation_file: Path | None = None
+    try_on_report_file: Path | None = None
 
 
 @dataclass
 class RunResult:
-    # 运行结果既用于终端 JSON 输出，也用于失败时告诉人工已经完成到哪一步。
+    """一次运行的累计结果。
+
+    这个对象同时承担两种职责：
+    1) 作为 JSON 输出到终端的结构化结果（main() 末尾 asdict(result)）；
+    2) 作为失败时的“进度报告”：completed_sections 记录已经稳定完成的
+       大阶段（new_product_start / title / basic_info / sales_info /
+       media / supplement），异常时据此告诉人工已经填到哪一步。
+    该对象在浏览器阶段被持续原地修改（不是 frozen），因此各处都直接
+    append/更新字段。
+    """
     status: str = "not_started"
     completed_sections: list[str] = field(default_factory=list)
     validation_errors: list[str] = field(default_factory=list)
@@ -115,6 +268,8 @@ class RunResult:
             "product_display": 0,
             "detail": 0,
             "outfit": 0,
+            "size_recommendation": 0,
+            "try_on_report": 0,
         }
     )
     sku_rows: int = 0
@@ -123,7 +278,14 @@ class RunResult:
 
 
 class DewuStartPage:
-    # 起始页使用 Element UI 表单结构，与详情页的 main 内容区定位逻辑分开维护。
+    """“申请新品”起始页的页面操作封装。
+
+    起始页使用 Element UI 表单结构，与详情页的 main 内容区定位逻辑分开维护。
+    该类只负责：验证起始页是空白状态 -> 选择品牌/类目/适用人群 -> 上传第一张
+    方图 -> 点击“创建新品发布申请”，并返回新打开的详情页。它不做任何保存
+    草稿或提交审核操作，属于流程的最前置一步。
+    """
+
     def __init__(
         self,
         browser: Any,
@@ -139,7 +301,11 @@ class DewuStartPage:
         self.result = result
 
     def run(self) -> Any:
-        # 起始页完成后只负责创建申请并返回新的详情页，不保存草稿或提交审核。
+        """按顺序执行起始页的完整填写流程，最后返回新创建的详情页 tab。
+
+        返回的详情页 tab 会继续交给 DewuAutomation 填写；本方法执行期间
+        只创建申请，不保存草稿、不提交审核。
+        """
         self._verify_blank()
         self._select_brand()
         self._select_category()
@@ -465,8 +631,14 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 
 
 class DewuAutomation:
-    # 该类只负责“已经准备好的商品数据”如何映射到当前得物页面，
-    # 不负责解析 JSON 或解压 ZIP，从而把数据问题和页面问题分开定位。
+    """“申请新品”详情页（spuEdit）的页面操作封装。
+
+    该类只负责“已经准备好的商品数据”如何映射到当前得物页面，不负责
+    解析 JSON 或解压 ZIP，从而把数据问题和页面问题分开定位。输入：
+    已经由 DewuStartPage 创建好的详情页 tab、不可变 ProductData、
+    已解析的 MediaFiles、RunSettings 和可累积的 RunResult。
+    """
+
     def __init__(
         self,
         tab: Any,
@@ -482,8 +654,13 @@ class DewuAutomation:
         self.result = result
 
     def run(self) -> RunResult:
-        # 页面填写按“安全检查 -> 基础信息 -> 销售规格 -> 图片 -> 补充信息”的顺序进行。
-        # 每完成一个大区块就记录标记，异常时可以判断最后一个已确认完成的阶段。
+        """按固定顺序执行详情页的完整填写流程。
+
+        页面填写顺序：安全检查 -> 基础信息 -> 销售规格 -> 图片 -> 补充信息。
+        每完成一个大区块就写入 result.completed_sections 记录标记，异常时
+        可以据此判断最后一个已确认完成的阶段，避免重复或遗漏。
+        最后统一读取页面可见错误；无错误且允许保存时才点击“保存草稿”。
+        """
         self.result.status = "running"
         self.result.page_url = str(self.tab.url)
         self._verify_target_page()
@@ -501,6 +678,7 @@ class DewuAutomation:
         self._fill_colors()
         if not self.settings.skip_size_chart:
             self._fill_sizes()
+            self._upload_size_guidance()
         self._fill_skus()
         self.result.completed_sections.append("sales_info")
 
@@ -514,13 +692,12 @@ class DewuAutomation:
         # 页面可能在填写过程中留下异步校验错误，保存前再统一读取一次可见错误。
         errors = self._read_visible_errors()
         if errors:
-            self.result.status = "needs_input"
+            # 得物允许把这些提示带入草稿；保存草稿本身不是提交审核。
             self.result.validation_errors.extend(errors)
-            return self.result
 
         # --no-save 用于首次调试选择器；填写成功不代表已经保存草稿。
         if not self.settings.save_draft:
-            self.result.status = "filled_not_saved"
+            self.result.status = "needs_input" if errors else "filled_not_saved"
             return self.result
 
         self._save_draft()
@@ -590,6 +767,7 @@ class DewuAutomation:
             "是否加绒",
             "成分含量",
             "图案",
+            "设计元素",
             "风格",
             "袖长",
             "衣门襟",
@@ -812,6 +990,197 @@ class DewuAutomation:
         self._select_product_sizes()
         self._wait_until(lambda: self._sku_variant_rows_present())
 
+    def _upload_size_guidance(self) -> None:
+        # 两个辅助表使用同一套弹窗流程；文件路径已在连接浏览器前完成解析和存在性校验。
+        files = (
+            ("尺码推荐", getattr(self.settings, "size_recommendation_file", None)),
+            ("试穿报告", getattr(self.settings, "try_on_report_file", None)),
+        )
+        # 直接调用 DewuAutomation 的单元测试或旧草稿调试可能没有配置辅助表；
+        # 主入口在浏览器连接前已经强制解析真实文件，因此这里仅兼容这种测试场景。
+        if all(file_path is None for _, file_path in files):
+            self.result.warnings.append("未配置尺码推荐/试穿报告 Excel，已跳过辅助表上传")
+            return
+        for label, file_path in files:
+            if file_path is None:
+                raise AutomationError(f"没有配置{label} Excel 文件")
+            self._upload_guidance_file(label, file_path)
+        self.result.completed_sections.append("size_guidance")
+
+    def _upload_guidance_file(self, label: str, file_path: Path) -> None:
+        modal = self._open_guidance_modal(label)
+        upload_input = self._guidance_upload_input(modal, label)
+        # Chrome clears the file input value after the page handles the change event,
+        # so observe the event itself instead of reading input.value.
+        upload_input.run_js(
+            """
+            this.setAttribute('data-dewu-upload-seen', '0');
+            this.addEventListener(
+                'change',
+                () => this.setAttribute('data-dewu-upload-seen', '1'),
+                {once: true}
+            );
+            """
+        )
+        upload_input.input(str(file_path))
+        self._wait_until(
+            lambda: upload_input.attr("data-dewu-upload-seen") == "1",
+            timeout=self.settings.upload_timeout,
+            message=f"等待{label}文件选择事件超时",
+        )
+
+        def ready_confirm() -> Any | None:
+            current_modal = self._locate_guidance_modal(label) or modal
+            try:
+                candidate = self._find_visible(
+                    ".//button[normalize-space(.)='确 定' or normalize-space(.)='确定']",
+                    f"{label}确定按钮",
+                    scope=current_modal,
+                )
+            except AutomationError:
+                return None
+            return None if _is_disabled(candidate) else candidate
+
+        confirm = self._wait_until(
+            ready_confirm,
+            timeout=self.settings.upload_timeout,
+            message=f"等待{label}解析完成超时",
+        )
+        self._click(confirm)
+        self._wait_for_guidance_modal_to_close(label)
+        self.result.uploaded_counts[SIZE_GUIDANCE_RESULT_KEYS[label]] = 1
+
+    def _wait_for_guidance_modal_to_close(self, label: str) -> None:
+        def close_outcome() -> bool | list[str]:
+            if self._locate_guidance_modal(label) is None:
+                return True
+            messages = [
+                item.text.strip()
+                for item in self._visible_elements(
+                    "//*[contains(@class,'el-message') or contains(@class,'ant-message')"
+                    " or contains(@class,'notification') or contains(@class,'toast')]"
+                )
+                if item.text.strip()
+            ]
+            return list(dict.fromkeys(messages))
+
+        outcome = self._wait_until(
+            close_outcome,
+            timeout=5,
+            message=f"{label}弹窗没有关闭",
+        )
+        if outcome is not True:
+            raise AutomationError(f"{label}保存失败：{'；'.join(outcome)}")
+
+    def _guidance_upload_input(self, modal: Any, label: str) -> Any:
+        try:
+            return self._find_any(
+                ".//input[@type='file']",
+                f"{label}文件输入框",
+                scope=modal,
+            )
+        except AutomationError:
+            if label != "试穿报告":
+                raise
+
+        self._select_guidance_template(modal, label)
+
+        def locate() -> Any | None:
+            current_modal = self._locate_guidance_modal(label) or modal
+            try:
+                return self._find_any(
+                    ".//input[@type='file']",
+                    f"{label}文件输入框",
+                    scope=current_modal,
+                )
+            except AutomationError:
+                return None
+
+        return self._wait_until(
+            locate,
+            message=f"{label}模板选择后没有出现上传控件",
+        )
+
+    def _select_guidance_template(self, modal: Any, label: str) -> None:
+        template_name = "服装试穿报告试穿体验"
+        template_input = self._find_visible(
+            ".//input[not(@type='file') and not(@disabled)]",
+            f"{label}模板选择框",
+            scope=modal,
+        )
+        self._click(template_input)
+        literal = _xpath_literal(template_name)
+
+        def locate_option() -> Any | None:
+            options = self._visible_elements(
+                "//li[contains(@class,'el-select-dropdown__item')]"
+                f"[contains(normalize-space(.),{literal})]"
+            )
+            return next((option for option in options if _has_layout(option)), None)
+
+        option = self._wait_until(
+            locate_option,
+            message=f"找不到{label}模板：{template_name}",
+        )
+        self._click(option)
+
+    def _open_guidance_modal(self, label: str) -> Any:
+        modal = self._locate_guidance_modal(label)
+        if modal is not None:
+            return modal
+        button_text = SIZE_GUIDANCE_BUTTONS[label]
+        self._click(
+            self._find_visible(
+                f"//button[normalize-space(.)={_xpath_literal(button_text)}]",
+                f"{button_text}按钮",
+            )
+        )
+        return self._wait_until(
+            lambda: self._locate_guidance_modal(label),
+            message=f"{label}弹窗没有打开",
+        )
+
+    def _locate_guidance_modal(self, label: str) -> Any | None:
+        title = _xpath_literal(f"编辑{label}")
+        candidates = self._visible_elements(
+            "//*[@role='dialog']"
+            f"[.//*[contains(normalize-space(.),{title})]]"
+        )
+        for candidate in reversed(candidates):
+            if _has_layout(candidate):
+                return candidate
+        return None
+
+    def _clear_guidance_modal(self, modal: Any, label: str) -> bool:
+        clear_controls = self._visible_elements(
+            ".//*[normalize-space(.)='一键清空']",
+            scope=modal,
+        )
+        if not clear_controls:
+            self.result.warnings.append(
+                f"{label}弹窗没有找到“一键清空”，继续按页面现状覆盖或追加"
+            )
+            return False
+
+        before = self._guidance_modal_values(label)
+        self._click(clear_controls[0])
+        self._wait_until(
+            lambda: not before or self._guidance_modal_values(label) != before,
+            timeout=5,
+            message=f"等待{label}一键清空完成超时",
+        )
+        return True
+
+    def _guidance_modal_values(self, label: str) -> list[str]:
+        modal = self._locate_guidance_modal(label)
+        if modal is None:
+            return []
+        inputs = self._visible_elements(
+            ".//input[not(@type='file')] | .//textarea",
+            scope=modal,
+        )
+        return [_element_value(item) for item in inputs]
+
     def _skip_size_chart(self) -> None:
         # 调试开关只关闭当前尺码弹窗，不清空或猜测尺码数据；后续销售规格仍按页面现状校验。
         modal = self._locate_size_modal()
@@ -893,22 +1262,38 @@ class DewuAutomation:
                 f"SKU {sku.color}/{sku.size} 输入框数量异常：期望至少 9，实际 {len(inputs)}"
             )
 
-        self._input_value(inputs[0], sku.product_code)
-        self._input_value(inputs[1], sku.auxiliary_code)
-        self._select_from_input(inputs[2], self.settings.offer_type, required=True)
-        self._input_value(inputs[3], _number_text(sku.offer_amount))
-        self._input_value(inputs[4], str(sku.inventory))
-
-        # 包装默认值为空时保持页面原值/空值，避免用猜测数据覆盖人工填写。
         package_values = (
             self.settings.package_defaults.get("length_cm"),
             self.settings.package_defaults.get("width_cm"),
             self.settings.package_defaults.get("height_cm"),
             self.settings.package_defaults.get("weight_kg"),
         )
-        for element, value in zip(inputs[5:9], package_values):
-            if value not in (None, ""):
-                self._input_value(element, str(value))
+        text_values = (
+            str(sku.product_code),
+            str(sku.auxiliary_code),
+            None,
+            _number_text(sku.offer_amount),
+            str(sku.inventory),
+            *(str(value) if value not in (None, "") else None for value in package_values),
+        )
+        self._set_sku_text_inputs(row, inputs, text_values)
+        self._select_from_input(inputs[2], self.settings.offer_type, required=True)
+
+    def _set_sku_text_inputs(
+        self,
+        row: Any,
+        inputs: Sequence[Any],
+        values: Sequence[str | None],
+    ) -> None:
+        """Fill controlled inputs through their native interaction path.
+
+        The sales table is Vue-controlled. A DOM-only setter can report the desired
+        values and still lose them when the offer-type select re-renders the row, so
+        each editable field is written through DrissionPage before selecting the type.
+        """
+        for element, value in zip(inputs, values):
+            if value is not None:
+                self._input_value(element, value)
 
     def _upload_carousel(self) -> None:
         # 轮播图按颜色逐行上传。每上传一张都等待页面计数增加，避免异步上传尚未完成
@@ -1014,6 +1399,27 @@ class DewuAutomation:
             '请填写此商品的真实外网销售链接，如果是得物专供/得物首发商品，可如实备注或直接填写"无"'
         )
         self._fill_placeholder(placeholder, self.settings.external_link)
+        # 得物在失焦时才清除“不能为空”的异步校验提示；该字段是最后一个文本框。
+        self._blur_element(self._external_link_element())
+
+    def _external_link_element(self) -> Any:
+        placeholder = (
+            '请填写此商品的真实外网销售链接，如果是得物专供/得物首发商品，可如实备注或直接填写"无"'
+        )
+        return self._find_visible(
+            f"//main//input[@placeholder={_xpath_literal(placeholder)}]",
+            "外网链接输入框",
+        )
+
+    def _blur_element(self, element: Any) -> None:
+        try:
+            element.run_js("this.blur()")
+        except Exception:
+            # Some test doubles and older DrissionPage versions do not expose run_js.
+            try:
+                self.tab.run_js("document.activeElement && document.activeElement.blur()")
+            except Exception:
+                pass
 
     def _save_draft(self) -> None:
         # 保存前先清掉旧的成功提示，避免把上一次运行的反馈误认为本次保存成功。
@@ -1028,9 +1434,13 @@ class DewuAutomation:
         button = self._find_visible("//button[normalize-space(.)='保存草稿']", "保存草稿按钮")
         self._click(button)
 
-        def success_message() -> Any | None:
+        def success_message() -> str | None:
             messages = self._save_success_messages()
-            return messages[0] if messages else None
+            if messages:
+                return messages[0].text.strip()
+            if _is_save_result_page(str(self.tab.url), self._page_text()):
+                return "提交成功（保存草稿结果页）"
+            return None
 
         try:
             message = self._wait_until(success_message, timeout=20, message="没有捕获到保存草稿成功提示")
@@ -1042,14 +1452,20 @@ class DewuAutomation:
         # 即使草稿保存成功，submission 仍保持未尝试，因为程序明确不提交审核。
         self.result.submission = "not_attempted"
         self.result.page_url = str(self.tab.url)
-        self.result.warnings.append(f"保存反馈：{message.text.strip()}")
+        self.result.warnings.append(f"保存反馈：{message}")
         errors = self._read_visible_errors()
         if errors:
-            self.result.status = "needs_input"
-            self.result.validation_errors.extend(errors)
-            self.result.warnings.append("页面已出现保存反馈，但保存后仍检测到阻止项，请人工复核草稿")
-            return
+            for error in errors:
+                if error not in self.result.validation_errors:
+                    self.result.validation_errors.append(error)
+            self.result.warnings.append("草稿已保存；页面仍有提示，请人工复核后再决定是否提交审核")
         self.result.status = "draft_saved"
+
+    def _page_text(self) -> str:
+        try:
+            return str(self.tab.ele("tag:body", timeout=1).text)
+        except Exception:
+            return ""
 
     def _save_success_messages(self) -> list[Any]:
         # 不依赖具体 UI 框架的完整类名，只筛选常见消息容器中同时出现“保存/草稿”和“成功”的提示。
@@ -1090,7 +1506,10 @@ class DewuAutomation:
         form_item = self._form_item(label)
         inputs = [
             item
-            for item in form_item.eles("xpath:.//input[not(@disabled)] | .//textarea[not(@disabled)]")
+            for item in self._scoped_elements(
+                form_item,
+                "xpath:.//input[not(@disabled)] | .//textarea[not(@disabled)]",
+            )
             if _is_displayed(item)
         ]
         if not inputs:
@@ -1111,12 +1530,28 @@ class DewuAutomation:
             if self._form_item_has_value(form_item, value):
                 continue
             literal = _xpath_literal(value)
-            option_labels = self._visible_elements(
-                f".//label[normalize-space(.)={literal} or .//*[normalize-space(.)={literal}]]",
-                scope=form_item,
-            )
+            option_labels = [
+                item
+                for item in self._scoped_elements(
+                    form_item,
+                    f"xpath:.//label[normalize-space(.)={literal} or .//*[normalize-space(.)={literal}]]",
+                    timeout=0,
+                )
+                if _is_displayed(item)
+            ]
             if option_labels:
                 self._click(option_labels[0])
+                if not self._form_item_has_value(self._form_item(label), value):
+                    # 部分页面版本的 radio 坐标点击会落空；原生 click 可直接触发受控组件事件。
+                    radio = option_labels[0].ele(
+                        "xpath:.//input[@type='radio']",
+                        timeout=0,
+                    )
+                    if radio:
+                        try:
+                            option_labels[0].run_js("this.click();")
+                        except Exception:
+                            pass
                 self._wait_until(
                     lambda: self._form_item_has_value(self._form_item(label), value),
                     message=f"字段“{label}”没有选中“{value}”",
@@ -1126,7 +1561,10 @@ class DewuAutomation:
 
             inputs = [
                 item
-                for item in form_item.eles("xpath:.//input[not(@disabled)]")
+                for item in self._scoped_elements(
+                    form_item,
+                    "xpath:.//input[not(@disabled)]",
+                )
                 if _is_displayed(item)
             ]
             if not inputs:
@@ -1187,8 +1625,12 @@ class DewuAutomation:
         self._click(input_element)
         if input_element.attr("readonly") is None:
             input_element.input(value, clear=True)
-        option = self._wait_for_option(value, timeout=5)
+        from DrissionPage.common import Keys
+
+        option = self._wait_for_option(value, timeout=5 if required else 1)
         if option is None:
+            # 选项不存在时也要收起当前多选下拉，避免遮挡后续属性控件。
+            input_element.input(Keys.ESCAPE, clear=False)
             if required:
                 raise AutomationError(f"下拉选项不存在：{value}")
             self.result.warnings.append(f"下拉选项不存在，已跳过：{value}")
@@ -1199,33 +1641,43 @@ class DewuAutomation:
             message=f"下拉框没有回显：{value}",
         )
         # Element UI 多选下拉选中后默认不收起，关闭它以免遮挡下一个字段并串用选项层。
-        from DrissionPage.common import Keys
-
         input_element.input(Keys.ESCAPE, clear=False)
         return True
 
     def _form_item_has_value(self, form_item: Any, value: str) -> bool:
         # 页面组件的选中状态可能体现在 checked、el-tag 或 input value 中，因此逐层兼容判断。
         literal = _xpath_literal(value)
-        labels = self._visible_elements(
-            f".//label[normalize-space(.)={literal} or .//*[normalize-space(.)={literal}]]",
-            scope=form_item,
-        )
+        labels = [
+            item
+            for item in self._scoped_elements(
+                form_item,
+                f"xpath:.//label[normalize-space(.)={literal} or .//*[normalize-space(.)={literal}]]",
+                timeout=0,
+            )
+            if _is_displayed(item)
+        ]
         if any(_label_is_checked(label) for label in labels):
             return True
 
-        tags = self._visible_elements(
-            f".//*[contains(concat(' ',normalize-space(@class),' '),' el-tag ')]"
-            f"[normalize-space(.)={literal} or .//*[normalize-space(.)={literal}]]",
-            scope=form_item,
-        )
+        tags = [
+            item
+            for item in self._scoped_elements(
+                form_item,
+                f"xpath:.//*[contains(concat(' ',normalize-space(@class),' '),' el-tag ')]"
+                f"[normalize-space(.)={literal} or .//*[normalize-space(.)={literal}]]",
+                timeout=0,
+            )
+            if _is_displayed(item)
+        ]
         if tags:
             return True
 
         return any(
             _element_value(item) == value
-            for item in form_item.eles(
-                "xpath:.//input[not(@type='radio') and not(@type='checkbox')] | .//textarea"
+            for item in self._scoped_elements(
+                form_item,
+                "xpath:.//input[not(@type='radio') and not(@type='checkbox')] | .//textarea",
+                timeout=0,
             )
         )
 
@@ -1235,14 +1687,16 @@ class DewuAutomation:
             return True
         select = input_element.ele(
             "xpath:./ancestor::*[contains(@class,'select')][1]",
-            timeout=1,
+            timeout=0,
         )
         if not select:
             return False
         literal = _xpath_literal(value)
-        selected_tags = select.eles(
+        selected_tags = self._scoped_elements(
+            select,
             "xpath:.//*[contains(@class,'tag') or contains(@class,'selection-item')]"
-            f"[normalize-space(.)={literal} or .//*[normalize-space(.)={literal}]]"
+            f"[normalize-space(.)={literal} or .//*[normalize-space(.)={literal}]]",
+            timeout=0,
         )
         if any(_is_displayed(item) for item in selected_tags):
             return True
@@ -1254,7 +1708,8 @@ class DewuAutomation:
 
         self._click(input_element)
         input_element.input(value, clear=True)
-        option = self._wait_for_option(value, timeout=3)
+        # 新颜色通常没有既有选项；短轮询仍覆盖异步回显，同时避免每个新颜色固定等待 3 秒。
+        option = self._wait_for_option(value, timeout=0.6)
         if option is not None:
             self._click(option)
         else:
@@ -1294,21 +1749,39 @@ class DewuAutomation:
         literal = _xpath_literal(value)
 
         def locate() -> Any | None:
-            options = self._visible_elements(
-                "//li[contains(@class,'select-dropdown__item')]"
-                f"[normalize-space(.)={literal} or .//*[normalize-space(.)={literal}]]"
-                " | //div[contains(@class,'select-item-option')]"
-                f"[normalize-space(.)={literal} or .//*[normalize-space(.)={literal}]]"
-            )
+            options = [
+                item
+                for item in self._scoped_elements(
+                    self.tab,
+                    "xpath://li[contains(@class,'select-dropdown__item')]"
+                    f"[normalize-space(.)={literal} or .//*[normalize-space(.)={literal}]]"
+                    " | //div[contains(@class,'select-item-option')]"
+                    f"[normalize-space(.)={literal} or .//*[normalize-space(.)={literal}]]",
+                    timeout=0,
+                )
+                if _is_displayed(item)
+            ]
             # 页面会保留 display:none 的下拉模板，DrissionPage 仍可能把它标记为 displayed；
             # 只有有实际布局尺寸的候选才是当前打开的选项。
             for option in options:
                 try:
-                    width, height = option.rect.size
+                    has_layout = option.run_js(
+                        """
+                        const style = getComputedStyle(this);
+                        return style.display !== 'none'
+                            && style.visibility !== 'hidden'
+                            && this.getClientRects().length > 0;
+                        """
+                    )
+                    if has_layout:
+                        return option
                 except Exception:
-                    continue
-                if width > 0 and height > 0:
-                    return option
+                    try:
+                        width, height = option.rect.size
+                    except Exception:
+                        continue
+                    if width > 0 and height > 0:
+                        return option
             return None
 
         try:
@@ -1770,6 +2243,19 @@ class DewuAutomation:
             elements = owner.eles(locator)
         return [element for element in elements if _is_displayed(element)]
 
+    def _scoped_elements(
+        self,
+        owner: Any,
+        locator: str,
+        *,
+        timeout: float = 1,
+    ) -> list[Any]:
+        # 属性校验需要读取隐藏的受控输入值，但不能使用 DrissionPage 的默认长等待。
+        try:
+            return owner.eles(locator, timeout=timeout)
+        except TypeError:
+            return owner.eles(locator)
+
     def _click(self, element: Any) -> None:
         # 点击前滚动到视口，降低固定头部或懒加载导致的点击失败概率。
         self._scroll(element)
@@ -1884,7 +2370,17 @@ def _chrome_start_command(port: int) -> str:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    # 主入口先完成无浏览器的数据预检；只有传入 --execute 才连接 Chrome。
+    """程序总入口。
+
+    分两个阶段运行：
+    1. 无浏览器阶段（预检）：解析 JSON -> 叠加属性覆盖 -> 解压并解析图片
+       -> 校验图片与运行参数 -> 匹配尺码辅助 Excel -> 打印预检摘要。
+       只有传入 --execute 才继续，否则直接返回 0。
+    2. 浏览器阶段（执行）：连接 Chrome -> 起始页创建申请 -> 详情页填写并
+       保存草稿 -> 输出结构化 JSON 结果。
+    任何异常都被转换为带 status 的 JSON 输出到 stderr，并返回对应退出码：
+       0=成功  2=数据/自动化异常  3=页面校验未通过  4=未预期错误  130=中止
+    """
     args = parse_args(argv)
     script_dir = Path(__file__).resolve().parent
     result: RunResult | None = None
@@ -1901,6 +2397,19 @@ def main(argv: Sequence[str] | None = None) -> int:
                 attributes={**product.attributes, **ATTRIBUTE_OVERRIDES},
             )
         product = _with_attribute_overrides(product, args.attribute)
+        size_recommendation_file = None
+        try_on_report_file = None
+        if not args.skip_size_chart:
+            size_recommendation_file = _resolve_size_guidance_file(
+                product.sizes,
+                CONFIG_ROOT,
+                "尺码推荐",
+            )
+            try_on_report_file = _resolve_size_guidance_file(
+                product.sizes,
+                CONFIG_ROOT,
+                "试穿报告",
+            )
         # 图片在此阶段完成解压、引用解析和页面大小/格式预检，浏览器阶段只接收合格路径。
         media = extract_and_resolve_media(product, zip_path, work_dir)
         _validate_media_for_page(product, media)
@@ -1916,6 +2425,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             save_draft=not args.no_save,
             skip_size_chart=args.skip_size_chart,
             timeout=args.timeout,
+            size_recommendation_file=size_recommendation_file,
+            try_on_report_file=try_on_report_file,
         )
 
         # 无 --execute 时只输出摘要，便于先检查标题、SKU、图片数量和警告。
@@ -1972,6 +2483,58 @@ def main(argv: Sequence[str] | None = None) -> int:
             }
         print(json.dumps(payload, ensure_ascii=False, indent=2), file=sys.stderr)
         return 4
+
+
+def _canonical_size_token(value: str) -> str:
+    token = re.sub(r"\s+", "", str(value)).upper()
+    if re.fullmatch(r"[2-9]X", token):
+        return f"{token}L"
+    return token
+
+
+def _size_range_from_stem(stem: str) -> tuple[str, str] | None:
+    parts = [part for part in re.split(r"-+", stem.strip()) if part]
+    if len(parts) != 2:
+        return None
+    return _canonical_size_token(parts[0]), _canonical_size_token(parts[1])
+
+
+def _resolve_size_guidance_file(
+    sizes: Sequence[str],
+    config_root: Path,
+    directory_name: str,
+) -> Path:
+    normalized_sizes = tuple(_canonical_size_token(size) for size in sizes if str(size).strip())
+    if not normalized_sizes:
+        raise ProductDataError("商品没有可用于匹配尺码配置的尺码")
+
+    directory = config_root / directory_name
+    if not directory.is_dir():
+        raise ProductDataError(f"尺码配置目录不存在：{directory}")
+
+    expected = (normalized_sizes[0], normalized_sizes[-1])
+    candidates = [
+        path.resolve()
+        for path in sorted(directory.glob("*.xlsx"))
+        if _size_range_from_stem(path.stem) == expected
+    ]
+    if len(candidates) == 1:
+        return candidates[0]
+    expected_text = f"{expected[0]}-{expected[1]}"
+    if not candidates:
+        available = sorted(
+            f"{start}-{end}"
+            for path in directory.glob("*.xlsx")
+            if (parsed := _size_range_from_stem(path.stem))
+            for start, end in (parsed,)
+        )
+        detail = f"可用范围：{', '.join(available) or '无'}"
+        raise ProductDataError(
+            f"{directory_name}缺少尺码范围 {expected_text} 的 Excel；{detail}"
+        )
+    raise ProductDataError(
+        f"{directory_name}存在多个尺码范围为 {expected_text} 的 Excel，无法安全选择：{candidates}"
+    )
 
 
 def _resolve_input(explicit: Path | None, directory: Path, pattern: str, label: str) -> Path:
@@ -2146,6 +2709,16 @@ def _is_start_page_url(url: str) -> bool:
 def _is_detail_page_url(url: str) -> bool:
     parsed = urlparse(str(url))
     return parsed.hostname == TARGET_HOST and TARGET_PATH_FRAGMENT in parsed.path
+
+
+def _is_save_result_page(url: str, text: str) -> bool:
+    """Recognize the result page reached by the dedicated draft-save button."""
+    parsed = urlparse(str(url))
+    return (
+        parsed.hostname == TARGET_HOST
+        and SAVE_RESULT_PATH_FRAGMENT in parsed.path
+        and "提交成功" in str(text)
+    )
 
 
 def _new_detail_tabs(tabs: Sequence[Any], before_urls: set[str]) -> list[Any]:

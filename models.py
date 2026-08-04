@@ -1,3 +1,75 @@
+"""得物新品自动化 —— 来源数据解析与图片准备。
+
+======================================================================
+一、模块职责
+======================================================================
+    本模块把“选品中心来源 JSON + 图片 ZIP”转换成浏览器阶段可直接消费的
+    只读数据对象，与 main.py 的页面操作逻辑彻底分离：
+
+        1. 解析来源 JSON，归一化为不可变 ProductData（商品快照）；
+        2. 解压图片 ZIP，解析出每张图在磁盘上的真实路径（MediaFiles）；
+        3. 所有解析失败都以 ProductDataError 抛出，由 main() 统一转换成
+           结构化 JSON 输出。
+
+    main.py 只消费本模块的结果，不接触原始 JSON / ZIP。
+
+======================================================================
+二、数据流
+======================================================================
+    来源 JSON ──load_product()──▶ ProductData ──┐
+         ▲                                       │
+         │ 图片 ZIP ──extract_and_resolve_media()│──▶ MediaFiles
+         │                                       │
+    浏览器阶段(main.py) ◀── ProductData + MediaFiles 一起使用
+        （填写起始页 + 详情页 + 上传图片 + 保存草稿）
+
+======================================================================
+三、来源 JSON 字段 → 内部字段 对照表
+======================================================================
+    下面“对照表”是定位字段来源的权威清单。表中“JSON 字段”列里的
+    attributes[] 指商品 attributes 数组里的每一行，行内用 attributeName /
+    attributeCode 区分用途。
+
+    | 来源 JSON 字段                                  | 内部字段                 |
+    |-------------------------------------------------|--------------------------|
+    | data（接口包装）/ 商品对象本身                  | 商品对象                 |
+    | id                                              | ProductData.source_id    |
+    | code                                            | ProductData.code         |
+    | itemNumber                                      | ProductData.item_no      |
+    | name                                            | source_name / 标题 / 属性推导 |
+    | categoryPath（“/”分隔的多级路径）               | ProductData.category_path|
+    | imageSets[] 中 platform=="得物" 的套图          | 图片套图选择             |
+    | imageSets[].shopName                            | ProductData.brand        |
+    | attributes[]：吊牌价（diaopaijia）              | release_price            |
+    | attributes[]：上市时间（sssj）                  | release_season（春/夏/秋/冬）|
+    | attributes[]：库存数量（kucun）                 | 仅汇总提示，不参与填写    |
+    | attributes[]：领型 / 风格 / 穿着方式 / 材质     | attributes（页面属性）    |
+    | attributes[]：材质(caizhi) 行 subValueNumber    | 成分含量                 |
+    | attributes[]：商品类型与品牌(leixing-pinpai) 行 subValueText | 设计元素 |
+    | skus[]                                          | ProductData.skus         |
+    |   skus[].attributes：颜色 / 尺码                | skus.color / skus.size   |
+    |   skus[].code                                   | skus.product_code        |
+    |   skus[].supplierSkuCode                        | skus.auxiliary_code      |
+    |   skus[].price                                  | 仅诊断，不参与页面填写    |
+    |   skus[].stock                                  | 仅校验，不参与页面填写    |
+    | imageSets[].mainImagePaths                      | media.main               |
+    | imageSets[].detailImagePaths                    | media.details            |
+    | imageSets[].firstSquarePaths                    | media.first_square       |
+    | imageSets[].firstLongPaths                      | media.first_long         |
+    | imageSets[].colorDewuPaths（颜色→图片数组）     | media.carousel_by_color  |
+
+======================================================================
+四、固定业务规则（写死，不是来源事实）
+======================================================================
+    以下值由业务方确定，与来源 JSON 无关；若口径变化，改本模块顶部常量
+    （见 main.py 顶部“配置区”）即可，无需改解析逻辑：
+        - FIXED_EXTERNAL_LINK：外链固定填“无”
+        - FIXED_SKU_INVENTORY：每条 SKU 库存固定填 1000
+        - 适用人群固定“通用”
+        - SKU 出价固定使用吊牌价（忽略来源 skus[].price）
+======================================================================
+"""
+
 from __future__ import annotations
 
 import hashlib
@@ -11,13 +83,16 @@ from typing import Any, Iterable, Mapping, Sequence
 from zipfile import BadZipFile, ZipFile
 
 
-# ZIP 解压相关的上限用于防止异常压缩包占满磁盘或产生过多文件。
+# ---- 安全上限：防止异常压缩包占满磁盘或产生过多文件 ----
 # 这些限制只影响本地预处理，不改变正常商品图片的解析规则。
-MAX_ZIP_MEMBERS = 2_000
-MAX_ZIP_MEMBER_BYTES = 100 * 1024 * 1024
-MAX_ZIP_TOTAL_BYTES = 2 * 1024 * 1024 * 1024
-FIXED_EXTERNAL_LINK = "无"
-FIXED_SKU_INVENTORY = 1000
+MAX_ZIP_MEMBERS = 2_000  # ZIP 内文件/目录总数上限
+MAX_ZIP_MEMBER_BYTES = 100 * 1024 * 1024  # 单个成员解压后字节数上限（100 MB）
+MAX_ZIP_TOTAL_BYTES = 2 * 1024 * 1024 * 1024  # 全部成员解压后总字节数上限（2 GB）
+
+# ---- 固定业务规则（写死，与来源 JSON 无关）----
+# 口径变化时改这里即可，解析逻辑无需跟着修改。
+FIXED_EXTERNAL_LINK = "无"  # 外网链接按业务规则固定填写“无”
+FIXED_SKU_INVENTORY = 1000  # 每条 SKU 的库存固定填写 1000
 
 
 class ProductDataError(ValueError):
@@ -26,7 +101,15 @@ class ProductDataError(ValueError):
 
 @dataclass(frozen=True)
 class TitleParts:
-    # 得物结构化标题由卖点、类目和适用人群三段组成。
+    """得物结构化标题的三个片段。
+
+    页面标题被拆成三个独立控件分别填写：卖点提炼 / 类目 / 适用人群。
+    全部由 _build_title() 从来源 name 推导，不是 JSON 里的现成字段：
+        - selling_point：商品名去除品牌、适用人群、类目后缀后的剩余文字；
+        - category：从 known_categories 匹配到的服饰类别（如“卫衣”）；
+        - audience：从商品名关键词识别（男款/女款/男女同款/儿童款），
+          识别不到时兜底“通用”。
+    """
     selling_point: str
     category: str
     audience: str
@@ -34,13 +117,22 @@ class TitleParts:
 
 @dataclass(frozen=True)
 class SkuData:
-    # color 和 size 是页面销售规格的定位键，必须与页面生成的规格组合一致。
+    """单个销售规格（SKU）行。
+
+    字段来源对照（见模块顶部“JSON 字段 → 内部字段 对照表”）：
+        - color / size：定位键，来自 skus[].attributes 中的“颜色”“尺码”，
+          必须与页面按颜色×尺码生成的规格组合完全一致；
+        - product_code：来自 skus[].code（来源 SKU 编码），权威值直接填写；
+        - auxiliary_code：来自 skus[].supplierSkuCode，缺省时回退到 product_code；
+        - source_price：来自 skus[].price，只保留作诊断，不参与页面填写；
+        - offer_amount：固定等于吊牌价 release_price（写死规则）；
+        - inventory：固定等于 FIXED_SKU_INVENTORY=1000（写死规则）。
+    price 和 inventory 用 Decimal/int，避免二进制浮点精度误差。
+    """
     color: str
     size: str
-    # product_code 是来源 SKU 编码；auxiliary_code 为空时回退到同一个编码。
     product_code: str
     auxiliary_code: str
-    # Decimal 避免价格计算经过二进制浮点数后出现精度误差。
     source_price: Decimal
     offer_amount: Decimal
     inventory: int
@@ -48,7 +140,14 @@ class SkuData:
 
 @dataclass(frozen=True)
 class MediaReferences:
-    # 这里保存 JSON 中的相对/原始文件名，尚未转换成磁盘上的绝对路径。
+    """图片引用（仅文件名/相对路径，尚未访问磁盘）。
+
+    直接从所选 imageSets 套图的图片字段拷贝而来，只做去空格、去空串的
+    归一化，不校验文件是否存在。真正的磁盘定位在 extract_and_resolve_media()
+    中按 basename + 目录双重条件完成。字段与 JSON 的对应关系见模块顶部
+    对照表（mainImagePaths / detailImagePaths / firstSquarePaths /
+    firstLongPaths / colorDewuPaths）。
+    """
     main: tuple[str, ...]
     details: tuple[str, ...]
     first_square: tuple[str, ...]
@@ -58,7 +157,26 @@ class MediaReferences:
 
 @dataclass(frozen=True)
 class ProductData:
-    # ProductData 是从来源 JSON 归一化后的只读商品快照，供主流程和浏览器流程共同使用。
+    """从来源 JSON 归一化后的只读商品快照。
+
+    供 main.py 的预检与浏览器阶段共同使用，冻结后不可修改，避免填写过程中
+    被意外改写。字段来源说明：
+        - source_id：来源 JSON 的 id；
+        - code：来源 JSON 的 code（商品编码，参与图片工作目录名）；
+        - source_name：来源 JSON 的 name（商品名，标题与属性推导的原料）；
+        - brand：优先取套图 shopName，缺失时用商品名首段兜底；
+        - category_path：来自 categoryPath，按“/”拆分；
+        - item_no：来源 JSON 的 itemNumber（货号，页面货号输入框）；
+        - audience：固定写死“通用”（业务规则）；
+        - title / release_price / release_season：由 name + attributes 推导；
+        - attributes：得物页面属性，字段名已映射为页面控件名（见
+          _build_dewu_attributes）；
+        - inferred_attributes：哪些属性不是来源原值而是按商品名推导的；
+        - colors / sizes / skus：来自 skus[] 数组的归一化结果；
+        - media_references：图片引用（见 MediaReferences）；
+        - external_link：固定写死 FIXED_EXTERNAL_LINK="无"；
+        - warnings：解析过程中产生的可解释性提示，供预检展示。
+    """
     source_id: int
     code: str
     source_name: str
@@ -86,7 +204,19 @@ class ProductData:
 
 @dataclass(frozen=True)
 class MediaFiles:
-    # MediaFiles 保存 ZIP 解压后的真实文件路径，并按页面图片区块重新组织。
+    """ZIP 解压后的真实磁盘路径，按页面图片区块重新组织。
+
+    由 extract_and_resolve_media() 产出，把 MediaReferences 的引用解析为
+    磁盘上唯一存在的文件。区块与页面用途的对应：
+        - carousel_by_color：每个颜色至少正、背两张“得物平铺图”，第一张
+          作为穿搭效果，第二张作为商品展示（fronts / backs）；
+        - product_display_backs：商品展示区，来自各颜色的第二张平铺图；
+        - outfit_fronts：穿搭效果区，来自各颜色的第一张平铺图；
+        - details：细节呈现区，来自 detailImagePaths；
+        - main / first_square / first_long：方图、第一张方图、第一张长图，
+          其中 first_square[0] 用于起始页上传。
+    图片所在目录是 _resolve_reference() 的匹配条件，保证不会拿错同名文件。
+    """
     extraction_root: Path
     carousel_by_color: Mapping[str, tuple[Path, ...]]
     product_display_backs: tuple[Path, ...]
@@ -101,13 +231,19 @@ class MediaFiles:
 def load_product(
     json_path: Path,
 ) -> ProductData:
-    # 读取来源 JSON 后，依次完成接口包装拆除、商品基础字段解析、属性推导、
-    # SKU 完整性校验和图片引用收集；任何不安全或无法确定的数据都直接报错。
+    """把来源 JSON 解析为不可变 ProductData。
+
+    解析顺序：读取 JSON -> 拆除接口包装 -> 解析商品基础字段 -> 推导标题与
+    属性 -> 校验 SKU 完整性 -> 收集图片引用。任何不安全或无法确定的数据
+    都直接抛 ProductDataError，让 main.py 转成结构化 JSON，绝不带着脏数据
+    进入浏览器阶段。字段与来源 JSON 的对应关系见模块顶部对照表。
+    """
     payload = _read_json(json_path)
     data = _unwrap_api_payload(payload)
 
-    # 货号、商品名和类目是后续页面定位及标题生成的最小必需信息。
+    # 商品编码用于来源 SKU 和图片工作目录；货号单独使用平台来源的 itemNumber。
     code = _required_text(data, "code")
+    item_no = _required_text(data, "itemNumber")
     source_name = _required_text(data, "name").strip()
     category_path = tuple(
         part.strip() for part in _required_text(data, "categoryPath").split("/") if part.strip()
@@ -127,7 +263,7 @@ def load_product(
     grouped_attributes, attribute_rows = _group_attributes(data.get("attributes"))
     release_price = _release_price(attribute_rows)
     release_season = _release_season(attribute_rows)
-    title = _build_title(source_name, brand, category_path[-1])
+    title = _build_title(source_name, brand, category_path[-1], grouped_attributes)
 
     recommended_attributes, inferred_attributes = _build_dewu_attributes(
         source_name,
@@ -160,7 +296,7 @@ def load_product(
         source_name=source_name,
         brand=brand,
         category_path=category_path,
-        item_no=code,
+        item_no=item_no,
         audience="通用",
         title=title,
         release_price=release_price,
@@ -181,8 +317,16 @@ def extract_and_resolve_media(
     zip_path: Path,
     work_root: Path,
 ) -> MediaFiles:
-    # 图片处理分两步：先按 ZIP 内容哈希做幂等解压，再把 JSON 中的文件名
-    # 解析为唯一的真实路径。这样重复运行不会反复解压，也不会静默选错图片。
+    """解压图片 ZIP 并把 JSON 中的图片引用解析为唯一磁盘路径。
+
+    分两步：
+        1. 幂等解压：按 ZIP 内容 SHA-256 前缀做缓存目录名，已解压且带
+           .complete 标记时直接复用，重复运行不会反复解压；
+        2. 路径解析：把 MediaReferences 中的每个引用按 basename + 目录
+           双重条件定位到唯一文件，零个/多个匹配都报错，防止静默选错图。
+    产出 MediaFiles 后，main.py 的 _validate_media_for_page() 还会按得物
+    页面限制（格式/数量/大小）再校验一遍。
+    """
     zip_path = zip_path.expanduser().resolve()
     if not zip_path.is_file():
         raise ProductDataError(f"图片压缩包不存在：{zip_path}")
@@ -381,7 +525,12 @@ def _attribute_number(
     return result if result.is_finite() else None
 
 
-def _build_title(source_name: str, brand: str, source_category: str) -> TitleParts:
+def _build_title(
+    source_name: str,
+    brand: str,
+    source_category: str,
+    grouped_attributes: Mapping[str, tuple[str, ...]] | None = None,
+) -> TitleParts:
     # 标题字段必须拆开填入页面，因此先识别适用人群和类目，再从商品名中
     # 去除已经被单独使用的部分，把剩余文本作为卖点。
     audience = next(
@@ -405,6 +554,26 @@ def _build_title(source_name: str, brand: str, source_category: str) -> TitlePar
     selling_point = candidate[: min(24, max_selling_point)].strip(" ，,、")
     if len(selling_point) < 2:
         selling_point = source_name[: min(24, max_selling_point)].strip()
+
+    def title_length() -> int:
+        return len(brand) + len(selling_point) + len(category) + len(audience)
+
+    if title_length() < 16:
+        # 短目录名称（例如“休闲裤”）没有足够卖点，补充来源风格后再填标题，
+        # 最后才用中性的“款”补齐平台下限，避免凭空编造商品卖点。
+        hints = list((grouped_attributes or {}).get("风格", ()))
+        category_hint = source_category.replace("男士", "").replace("女士", "").strip()
+        if not hints and category_hint and category_hint != category:
+            hints.append(category_hint)
+        for hint in hints:
+            if title_length() >= 16:
+                break
+            text = str(hint).strip(" ，,、")
+            available = max_selling_point - len(selling_point)
+            if text and available > 0:
+                selling_point += text[:available]
+        while title_length() < 16 and len(selling_point) < max_selling_point:
+            selling_point += "款"
     return TitleParts(selling_point=selling_point, category=category, audience=audience)
 
 
@@ -460,15 +629,15 @@ def _build_dewu_attributes(
         if material and percentage not in (None, ""):
             attributes["成分含量"] = (f"{material}{percentage}%",)
 
-    # 商品类型属性的图案信息在 subValueText 中，可能有多行，去重后再填写。
-    pattern_rows = _find_attribute_rows(rows, "leixing-pinpai", "商品类型与品牌")
-    patterns = tuple(
+    # 来源的“商品类型与品牌”子值对应得物页面的“设计元素”，可能有多行。
+    design_element_rows = _find_attribute_rows(rows, "leixing-pinpai", "商品类型与品牌")
+    design_elements = tuple(
         str(row.get("subValueText") or "").strip()
-        for row in pattern_rows
+        for row in design_element_rows
         if str(row.get("subValueText") or "").strip()
     )
-    if patterns:
-        attributes["图案"] = tuple(dict.fromkeys(patterns))
+    if design_elements:
+        attributes["设计元素"] = tuple(dict.fromkeys(design_elements))
 
     # 上市时间已在 _release_season 中归一化为平台可接受的季节值。
     attributes["适用季节"] = (release_season,)
@@ -480,6 +649,13 @@ def _build_dewu_attributes(
     elif "短袖" in source_name:
         attributes["袖长"] = ("短袖",)
         inferred.append("袖长")
+
+    # 商品名中的明确领型词可以作为页面必填属性的可靠来源；含糊时继续留给人工填写。
+    for collar in ("圆领", "V领", "高领", "立领", "翻领", "连帽"):
+        if collar in source_name:
+            attributes["领型"] = (collar,)
+            inferred.append("领型")
+            break
 
     if "短款" in source_name:
         attributes["衣长"] = ("短款",)

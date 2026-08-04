@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import tempfile
 import unittest
 from collections.abc import Mapping
@@ -58,6 +59,240 @@ class LaunchUrlTests(unittest.TestCase):
             with self.subTest(value=value), self.assertRaises(ebayda_helper.HelperError):
                 ebayda_helper.parse_launch_url(value)
 
+
+class BindingUrlTests(unittest.TestCase):
+    def test_bind_and_unbind_urls_are_parsed(self) -> None:
+        self.assertEqual(
+            ebayda_helper.parse_binding_url(
+                "ebayda://shop-binding?action=bind&ticket=abcdefghijklmnop"
+            ),
+            ebayda_helper.BindingRequest(action="bind", ticket="abcdefghijklmnop"),
+        )
+        self.assertEqual(
+            ebayda_helper.parse_binding_url(
+                "ebayda://shop-binding?action=unbind&ticket=abcdefghijklmnop"
+            ),
+            ebayda_helper.BindingRequest(action="unbind", ticket="abcdefghijklmnop"),
+        )
+
+    def test_binding_urls_reject_extra_or_unsafe_parameters(self) -> None:
+        invalid_urls = (
+            "ebayda://bind?shop_id=101",
+            "ebayda://shop-binding?action=bind",
+            "ebayda://shop-binding?action=bind&ticket=short",
+            "ebayda://shop-binding?action=invalid&ticket=abcdefghijklmnop",
+            "ebayda://shop-binding?action=bind&ticket=abcdefghijklmnop&extra=1",
+            "ebayda://shop-binding?action=bind&ticket=abcdefghijklmnop&ticket=other",
+            "ebayda://run?shop_id=101",
+        )
+        for value in invalid_urls:
+            with self.subTest(value=value), self.assertRaises(
+                ebayda_helper.HelperError
+            ):
+                ebayda_helper.parse_binding_url(value)
+
+
+class BindingStateTests(unittest.TestCase):
+    def test_bind_opens_profile_and_unbind_keeps_profile(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            opened: list[Path] = []
+
+            ebayda_helper.bind_shop(
+                "101",
+                app_root=root,
+                ensure=lambda profile: opened.append(profile),
+            )
+            profile = root / "profiles" / "101"
+            self.assertEqual(opened, [profile])
+            self.assertTrue(ebayda_helper.is_shop_bound(root, "101"))
+
+            ebayda_helper.unbind_shop("101", app_root=root)
+
+            self.assertFalse(ebayda_helper.is_shop_bound(root, "101"))
+            self.assertFalse(profile.exists())
+
+
+class BindingClaimTests(unittest.TestCase):
+    class Response:
+        def __init__(self, body: bytes, status: int = 200) -> None:
+            self.body = body
+            self.status = status
+            self.read_limit: int | None = None
+            self.closed = False
+
+        def __enter__(self) -> "BindingClaimTests.Response":
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            self.closed = True
+
+        def read(self, limit: int) -> bytes:
+            self.read_limit = limit
+            return self.body[:limit]
+
+    def setUp(self) -> None:
+        self.request = ebayda_helper.BindingRequest(
+            action="bind", ticket="abcdefghijklmnop"
+        )
+
+    def test_posts_binding_ticket_and_validates_flat_payload(self) -> None:
+        payload = {
+            "ticket_id": "binding_1",
+            "user_id": 42,
+            "shop_id": 101,
+            "device_id": "device-mac-1",
+            "action": "bind",
+            "status": "bound",
+            "claimed_at": "2026-08-04T01:00:00Z",
+        }
+        response = self.Response(json.dumps(payload).encode("utf-8"))
+        call: dict[str, object] = {}
+
+        def open_url(http_request: object, timeout: int) -> BindingClaimTests.Response:
+            call["request"] = http_request
+            call["timeout"] = timeout
+            return response
+
+        result = ebayda_helper.claim_binding(self.request, open_url=open_url)
+        http_request = call["request"]
+        headers = {
+            name.casefold(): value for name, value in http_request.header_items()
+        }
+        self.assertEqual(
+            http_request.full_url,
+            "http://101.34.90.101:10112/api/automation/shop-bindings/claim",
+        )
+        self.assertEqual(http_request.get_method(), "POST")
+        self.assertEqual(http_request.data, b"")
+        self.assertEqual(headers["authorization"], "BindingTicket abcdefghijklmnop")
+        self.assertEqual(result, payload)
+        self.assertEqual(call["timeout"], ebayda_helper.BINDING_TIMEOUT_SECONDS)
+        self.assertTrue(response.closed)
+
+    def test_rejects_action_status_and_shop_mismatches(self) -> None:
+        payloads = (
+            {"action": "unbind", "shop_id": 101, "device_id": "d", "status": "bound"},
+            {"action": "bind", "shop_id": "../101", "device_id": "d", "status": "bound"},
+            {"action": "bind", "shop_id": 101, "device_id": "d", "status": "unbound"},
+        )
+        for payload in payloads:
+            with self.subTest(payload=payload), self.assertRaises(
+                ebayda_helper.HelperError
+            ):
+                response = self.Response(json.dumps(payload).encode("utf-8"))
+                ebayda_helper.claim_binding(
+                    self.request,
+                    open_url=lambda *args, response=response, **kwargs: response,
+                )
+
+
+class TaskExecutionCleanupTests(unittest.TestCase):
+    def test_execute_claimed_job_cleans_files_after_success(self) -> None:
+        payload = {
+            "job_id": "job_1",
+            "shop_id": "101",
+            "action": "save_draft",
+            "job_token": "abcdefghijklmnop",
+            "product_json_url": "https://www.ebayda.com/api/automation/jobs/job_1/product-json",
+            "images_zip_url": "https://www.ebayda.com/api/automation/jobs/job_1/images",
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+
+            def prepare(_job: object, app_root: Path) -> helper_runtime.TaskFiles:
+                task_dir = app_root / "jobs" / "job_1"
+                task_dir.mkdir(parents=True)
+                (task_dir / "product.json").write_text("{}", encoding="utf-8")
+                return helper_runtime.TaskFiles(
+                    task_dir / "product.json",
+                    task_dir / "images.zip",
+                    task_dir / "work",
+                )
+
+            with patch.object(ebayda_helper, "application_root", return_value=root), patch.object(
+                ebayda_helper, "prepare_job_files", side_effect=prepare
+            ), patch.object(ebayda_helper, "shop_profile", return_value=root / "profiles" / "101"), patch.object(
+                ebayda_helper, "ensure_chrome", return_value=9222
+            ), patch.object(ebayda_helper, "run_automation", return_value=0), patch.object(
+                ebayda_helper, "post_event"
+            ):
+                result = ebayda_helper.execute_claimed_job(payload)
+
+            self.assertEqual(result[0], "draft_saved")
+            self.assertFalse((root / "jobs" / "job_1").exists())
+
+
+class ApiOriginTests(unittest.TestCase):
+    def test_api_origin_defaults_to_tencent_cloud(self) -> None:
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(
+                ebayda_helper._configured_api_origin(),
+                "http://101.34.90.101:10112",
+            )
+
+    def test_local_api_origin_requires_explicit_test_flag(self) -> None:
+        with patch.dict(
+            os.environ,
+            {"EBAYDA_API_ORIGIN": "http://127.0.0.1:18080"},
+            clear=True,
+        ), self.assertRaisesRegex(
+            ebayda_helper.HelperError,
+            "^本地 API 地址必须显式启用测试开关$",
+        ):
+            ebayda_helper._configured_api_origin()
+
+    def test_tencent_cloud_api_origin_is_allowed_with_remote_test_flag(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "EBAYDA_API_ORIGIN": "http://101.34.90.101:10112",
+                "EBAYDA_ALLOW_REMOTE_API": "1",
+            },
+            clear=True,
+        ):
+            self.assertEqual(
+                ebayda_helper._configured_api_origin(),
+                "http://101.34.90.101:10112",
+            )
+
+    def test_local_api_origin_rewrites_claimed_resource_paths_only(self) -> None:
+        payload = {
+            "job_id": "job_1",
+            "shop_id": "101",
+            "action": "save_draft",
+            "job_token": "abcdefghijklmnop",
+            "product_json_url": (
+                "https://www.ebayda.com/api/automation/jobs/job_1/product-json"
+            ),
+            "images_zip_url": (
+                "https://www.ebayda.com/api/automation/jobs/job_1/images"
+            ),
+        }
+        job = helper_runtime.ClaimedJob.from_payload(payload)
+
+        with patch.dict(
+            os.environ,
+            {
+                "EBAYDA_API_ORIGIN": "http://127.0.0.1:18080",
+                "EBAYDA_ALLOW_LOCAL_API": "1",
+            },
+            clear=True,
+        ):
+            localized = ebayda_helper._localize_claimed_job(
+                job,
+                ebayda_helper._configured_api_origin(),
+            )
+
+        self.assertEqual(
+            localized.product_json_url,
+            "http://127.0.0.1:18080/api/automation/jobs/job_1/product-json",
+        )
+        self.assertEqual(
+            localized.images_zip_url,
+            "http://127.0.0.1:18080/api/automation/jobs/job_1/images",
+        )
+        self.assertEqual(localized.job_token, job.job_token)
 
 class ClaimJobTests(unittest.TestCase):
     class Response:
@@ -122,7 +357,7 @@ class ClaimJobTests(unittest.TestCase):
         }
         self.assertEqual(
             http_request.full_url,
-            "https://www.ebayda.com/api/automation/jobs/job_abc-123/claim",
+            "http://101.34.90.101:10112/api/automation/jobs/job_abc-123/claim",
         )
         self.assertEqual(http_request.get_method(), "POST")
         self.assertEqual(http_request.data, b"")
@@ -320,6 +555,18 @@ class CommandLineTests(unittest.TestCase):
         )
         self.assertNotIn("abcdefghijklmnop", error_output.getvalue())
 
+    def test_malformed_url_returns_safe_failure_instead_of_raising(self) -> None:
+        error_output = io.StringIO()
+
+        with redirect_stderr(error_output):
+            exit_code = ebayda_helper.main(["ebayda://["])
+
+        self.assertEqual(exit_code, 2)
+        self.assertEqual(
+            json.loads(error_output.getvalue()),
+            {"status": "failed", "error": "启动地址格式错误"},
+        )
+
     def test_paused_execution_returns_two(self) -> None:
         output = io.StringIO()
         with patch.object(ebayda_helper, "claim_job", return_value={}), patch.object(
@@ -379,7 +626,7 @@ class EventTests(unittest.TestCase):
         headers = {name.casefold(): value for name, value in request.header_items()}
         self.assertEqual(
             request.full_url,
-            "https://www.ebayda.com/api/automation/jobs/job_1/events",
+            "http://101.34.90.101:10112/api/automation/jobs/job_1/events",
         )
         self.assertEqual(request.get_method(), "POST")
         self.assertEqual(json.loads(request.data), {"status": "running"})

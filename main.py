@@ -215,6 +215,8 @@ MAX_DETAIL_IMAGES = 8
 MAX_OUTFIT_IMAGES = 15
 MAX_CAROUSEL_FILE_BYTES = 5 * 1024 * 1024
 MAX_DETAIL_FILE_BYTES = 20 * 1024 * 1024
+# 页面状态已经由显式回显校验保护；更短轮询减少异步更新后的空等。
+WAIT_POLL_INTERVAL = 0.08
 
 
 class AutomationError(RuntimeError):
@@ -586,7 +588,7 @@ class DewuStartPage:
                     return value
             except Exception as error:
                 last_error = error
-            time.sleep(0.15)
+            time.sleep(WAIT_POLL_INTERVAL)
         if last_error:
             raise AutomationError(f"{message}：{last_error}") from last_error
         raise AutomationError(message)
@@ -908,20 +910,7 @@ class DewuAutomation:
             )
 
         # 第一列填写尺码名称，后续列只在 SIZE_CHART 提供非空值时填写。
-        # 每次输入后页面可能替换当前行节点，因此下一次操作前重新读取行和输入框。
-        def cell_value(row_index: int, input_index: int) -> str:
-            current_rows = self._size_rows(table)
-            if row_index >= len(current_rows):
-                return ""
-            current_inputs = [
-                item
-                for item in current_rows[row_index].eles("xpath:.//input")
-                if _is_displayed(item)
-            ]
-            if input_index >= len(current_inputs):
-                return ""
-            return _element_value(current_inputs[input_index])
-
+        # 每行使用一次 DOM 批量写入，最后统一校验整行，减少逐单元格等待。
         for index, size in enumerate(self.product.sizes):
             current_rows = self._size_rows(table)
             if index >= len(current_rows):
@@ -933,35 +922,62 @@ class DewuAutomation:
             ]
             if not inputs:
                 raise AutomationError(f"尺码表第 {index + 1} 行没有输入框")
-            self._input_value(inputs[0], size)
-            self._wait_until(
-                lambda index=index, size=size: cell_value(index, 0) == size,
-                message=f"尺码表第 {index + 1} 行回显失败：{size}",
-            )
-
             chart_values = self.settings.size_chart.get(size, {})
-            for input_index in range(1, len(inputs)):
-                header = headers[input_index] if input_index < len(headers) else ""
-                value = _lookup_size_value(chart_values, header)
-                if value in (None, ""):
-                    continue
-                current_rows = self._size_rows(table)
-                current_inputs = [
+            values: tuple[str | None, ...] = (
+                size,
+                *(
+                    (
+                        str(value)
+                        if (value := _lookup_size_value(chart_values, header))
+                        not in (None, "")
+                        else None
+                    )
+                    for header in headers[1 : len(inputs)]
+                ),
+            )
+            if len(values) < len(inputs):
+                values += (None,) * (len(inputs) - len(values))
+
+            def row_values_match(
+                row_index: int = index,
+                expected_values: tuple[str | None, ...] = values,
+            ) -> bool:
+                refreshed_rows = self._size_rows(table)
+                if row_index >= len(refreshed_rows):
+                    return False
+                refreshed_inputs = [
                     item
-                    for item in current_rows[index].eles("xpath:.//input")
+                    for item in refreshed_rows[row_index].eles("xpath:.//input")
                     if _is_displayed(item)
                 ]
-                if input_index >= len(current_inputs):
-                    raise AutomationError(
-                        f"尺码表第 {index + 1} 行缺少第 {input_index + 1} 列输入框"
-                    )
-                self._input_value(current_inputs[input_index], str(value))
-                self._wait_until(
-                    lambda index=index, input_index=input_index, value=str(value): (
-                        cell_value(index, input_index) == value
-                    ),
-                    message=f"尺码表第 {index + 1} 行第 {input_index + 1} 列回显失败",
+                if len(refreshed_inputs) < len(expected_values):
+                    return False
+                return all(
+                    expected is None
+                    or _element_value(refreshed_inputs[input_index]) == expected
+                    for input_index, expected in enumerate(expected_values)
                 )
+
+            self._set_sku_text_inputs(current_rows[index], inputs, values)
+            if not row_values_match():
+                # Vue may replace the row after the first input event; retry once
+                # with fresh nodes before entering the normal wait loop.
+                refreshed_rows = self._size_rows(table)
+                if index < len(refreshed_rows):
+                    refreshed_inputs = [
+                        item
+                        for item in refreshed_rows[index].eles("xpath:.//input")
+                        if _is_displayed(item)
+                    ]
+                    if len(refreshed_inputs) >= len(values):
+                        self._set_sku_text_inputs(
+                            refreshed_rows[index], refreshed_inputs, values
+                        )
+
+            self._wait_until(
+                row_values_match,
+                message=f"尺码表第 {index + 1} 行回显失败：{size}",
+            )
 
         # 点击确定后必须等待弹窗真正消失，并进一步等待销售规格行生成。
         confirm = self._find_visible(
@@ -1277,7 +1293,14 @@ class DewuAutomation:
             *(str(value) if value not in (None, "") else None for value in package_values),
         )
         self._set_sku_text_inputs(row, inputs, text_values)
-        self._select_from_input(inputs[2], self.settings.offer_type, required=True)
+        # Windows 缩放时出价类型输入框和“下架”操作可能发生命中区域重叠；
+        # 该控件及其选项只允许 DOM 点击，失败就中止而不冒险使用坐标点击。
+        self._select_from_input(
+            inputs[2],
+            self.settings.offer_type,
+            required=True,
+            dom_only=True,
+        )
 
     def _set_sku_text_inputs(
         self,
@@ -1285,7 +1308,7 @@ class DewuAutomation:
         inputs: Sequence[Any],
         values: Sequence[str | None],
     ) -> None:
-        """Set the non-select SKU inputs in one DOM pass, with a safe fallback."""
+        """Set a row's non-select inputs in one DOM pass, with a safe fallback."""
         editable = tuple(
             (element, value)
             for element, value in zip(inputs, values)
@@ -1676,11 +1699,21 @@ class DewuAutomation:
             return
         self._select_from_input(elements[0], value, required=required)
 
-    def _select_from_input(self, input_element: Any, value: str, *, required: bool) -> bool:
+    def _select_from_input(
+        self,
+        input_element: Any,
+        value: str,
+        *,
+        required: bool,
+        dom_only: bool = False,
+    ) -> bool:
         # 先处理已是目标值的幂等情况；否则打开下拉、等待选项、点击并检查最终显示值。
         if _element_value(input_element) == value:
             return True
-        self._click(input_element)
+        if dom_only:
+            self._dom_click(input_element, "SKU 出价类型输入框")
+        else:
+            self._click(input_element)
         if input_element.attr("readonly") is None:
             input_element.input(value, clear=True)
         from DrissionPage.common import Keys
@@ -1693,14 +1726,44 @@ class DewuAutomation:
                 raise AutomationError(f"下拉选项不存在：{value}")
             self.result.warnings.append(f"下拉选项不存在，已跳过：{value}")
             return False
-        self._click(option)
-        self._wait_until(
-            lambda: self._input_has_value(input_element, value),
-            message=f"下拉框没有回显：{value}",
-        )
+        self._click_option(option, value, dom_only=dom_only)
+        try:
+            self._wait_until(
+                lambda: self._input_has_value(input_element, value),
+                message=f"下拉框没有回显：{value}",
+            )
+        except AutomationError as error:
+            if dom_only or value == "直发":
+                raise AutomationError(
+                    f"出价类型“{value}”没有回显，已停止，未继续执行可能触发“下架”的操作"
+                ) from error
+            raise
         # Element UI 多选下拉选中后默认不收起，关闭它以免遮挡下一个字段并串用选项层。
         input_element.input(Keys.ESCAPE, clear=False)
         return True
+
+    def _dom_click(self, element: Any, description: str) -> None:
+        try:
+            element.run_js("this.click();")
+        except Exception as error:
+            raise AutomationError(f"无法安全点击{description}，已停止") from error
+
+    def _click_option(self, option: Any, value: str, *, dom_only: bool = False) -> None:
+        # DOM click 不经过屏幕坐标命中测试，避免 Windows 缩放时误触相邻的“下架”。
+        option_text = re.sub(
+            r"\s+", " ", str(getattr(option, "text", "") or "")
+        ).strip()
+        if option_text and option_text != value:
+            raise AutomationError(
+                f"下拉选项文本不匹配：期望“{value}”，实际“{option_text}”"
+            )
+        if dom_only or value == "直发":
+            self._dom_click(option, f"下拉选项“{value}”")
+            return
+        try:
+            option.run_js("this.click();")
+        except Exception:
+            self._click(option)
 
     def _form_item_has_value(self, form_item: Any, value: str) -> bool:
         # 页面组件的选中状态可能体现在 checked、el-tag 或 input value 中，因此逐层兼容判断。
@@ -1769,7 +1832,7 @@ class DewuAutomation:
         # 新颜色通常没有既有选项；短轮询仍覆盖异步回显，同时避免每个新颜色固定等待 3 秒。
         option = self._wait_for_option(value, timeout=0.6)
         if option is not None:
-            self._click(option)
+            self._click_option(option, value)
         else:
             input_element.input(Keys.ENTER, clear=False)
         self._wait_until(lambda: _element_value(input_element) == value)
@@ -2343,7 +2406,7 @@ class DewuAutomation:
                     return value
             except Exception as error:
                 last_error = error
-            time.sleep(0.15)
+            time.sleep(WAIT_POLL_INTERVAL)
         if last_error:
             raise AutomationError(f"{message}：{last_error}") from last_error
         raise AutomationError(message)

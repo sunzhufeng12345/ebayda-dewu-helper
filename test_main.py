@@ -476,6 +476,99 @@ class SkuInputOptimizationTests(unittest.TestCase):
         self.assertEqual(row.calls, 1)
         self.assertEqual(fallback, [])
 
+    def test_offer_type_row_uses_dom_only_selection(self) -> None:
+        inputs = [_FocusRequiredInput() for _ in range(9)]
+
+        class Row(_FakeSizeDataRow):
+            pass
+
+        row = Row(inputs)
+        automation = object.__new__(main.DewuAutomation)
+        automation.settings = SimpleNamespace(
+            offer_type="直发",
+            package_defaults={
+                "length_cm": "42",
+                "width_cm": "38",
+                "height_cm": "5",
+                "weight_kg": "0.8",
+            },
+        )
+        selected: list[dict[str, object]] = []
+        automation._set_sku_text_inputs = lambda *_args, **_kwargs: None
+        automation._select_from_input = (
+            lambda *_args, **kwargs: selected.append(kwargs) or True
+        )
+
+        automation._fill_sku_row(
+            row,
+            SimpleNamespace(
+                color="白色",
+                size="M",
+                product_code="SKU-1",
+                auxiliary_code="AUX-1",
+                offer_amount=Decimal("399"),
+                inventory=1000,
+            ),
+        )
+
+        self.assertEqual(selected, [{"required": True, "dom_only": True}])
+
+    def test_direct_offer_option_never_falls_back_to_pointer_click(self) -> None:
+        class Option:
+            text = "直发"
+
+        automation = object.__new__(main.DewuAutomation)
+        pointer_clicks: list[object] = []
+        automation._click = lambda element: pointer_clicks.append(element)
+
+        with self.assertRaises(main.AutomationError):
+            automation._click_option(Option(), "直发", dom_only=True)
+
+        self.assertEqual(pointer_clicks, [])
+
+    def test_direct_offer_option_uses_dom_click(self) -> None:
+        class Option:
+            text = "直发"
+
+            def __init__(self) -> None:
+                self.scripts: list[str] = []
+
+            def run_js(self, script: str) -> None:
+                self.scripts.append(script)
+
+        option = Option()
+        automation = object.__new__(main.DewuAutomation)
+        automation._click = lambda _element: self.fail("pointer click must not be used")
+
+        automation._click_option(option, "直发", dom_only=True)
+
+        self.assertEqual(option.scripts, ["this.click();"])
+
+    def test_size_row_batch_write_uses_one_dom_pass(self) -> None:
+        class Row:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def run_js(self, _script: str) -> list[str]:
+                self.calls += 1
+                for item, value in zip(inputs, ("M", "55", "68")):
+                    item.value = value
+                return ["M", "55", "68"]
+
+            def eles(self, _locator: str) -> list[_FocusRequiredInput]:
+                return inputs
+
+        inputs = [_FocusRequiredInput() for _ in range(3)]
+        row = Row()
+        automation = object.__new__(main.DewuAutomation)
+        fallback: list[object] = []
+        automation._input_value = lambda element, value: fallback.append((element, value))
+
+        automation._set_sku_text_inputs(row, inputs, ("M", "55", "68"))
+
+        self.assertEqual(row.calls, 1)
+        self.assertEqual(fallback, [])
+
 
 class _FakeRect:
     def __init__(self, width: int, height: int) -> None:

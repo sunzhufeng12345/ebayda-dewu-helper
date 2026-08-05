@@ -83,28 +83,20 @@ class ClaimedJobTests(unittest.TestCase):
         self.assertEqual(job.shop_id, "101")
         self.assertEqual(job.action, "save_draft")
 
-    def test_tencent_cloud_payload_is_accepted(self) -> None:
-        job = helper_runtime.ClaimedJob.from_payload(
-            valid_payload(
-                product_json_url=(
-                    "http://101.34.90.101:10112/api/automation/jobs/"
-                    "job_1/product-json"
-                ),
-                images_zip_url=(
-                    "http://101.34.90.101:10112/api/automation/jobs/"
-                    "job_1/images"
-                ),
+    def test_plain_http_tencent_cloud_payload_is_rejected(self) -> None:
+        with self.assertRaises(helper_runtime.TaskExecutionError):
+            helper_runtime.ClaimedJob.from_payload(
+                valid_payload(
+                    product_json_url=(
+                        "http://101.34.90.101:10112/api/automation/jobs/"
+                        "job_1/product-json"
+                    ),
+                    images_zip_url=(
+                        "http://101.34.90.101:10112/api/automation/jobs/"
+                        "job_1/images"
+                    ),
+                )
             )
-        )
-
-        self.assertEqual(
-            job.product_json_url,
-            "http://101.34.90.101:10112/api/automation/jobs/job_1/product-json",
-        )
-        self.assertEqual(
-            job.images_zip_url,
-            "http://101.34.90.101:10112/api/automation/jobs/job_1/images",
-        )
 
     def test_urls_must_be_https_ebayda_job_resources(self) -> None:
         invalid_urls = (
@@ -470,13 +462,13 @@ class AutomationRunnerTests(unittest.TestCase):
         )
         calls: list[list[str]] = []
 
-        exit_code = helper_runtime.run_automation(
+        result = helper_runtime.run_automation(
             files,
             17321,
             runner=lambda argv: calls.append(list(argv)) or 0,
         )
 
-        self.assertEqual(exit_code, 0)
+        self.assertEqual(result.exit_code, 0)
         self.assertEqual(
             calls,
             [
@@ -510,11 +502,47 @@ class AutomationRunnerTests(unittest.TestCase):
             return 0
 
         with redirect_stdout(stdout), redirect_stderr(stderr):
-            exit_code = helper_runtime.run_automation(files, 17321, runner=noisy_runner)
+            result = helper_runtime.run_automation(files, 17321, runner=noisy_runner)
 
-        self.assertEqual(exit_code, 0)
+        self.assertEqual(result.exit_code, 0)
+        self.assertIsNone(result.message)
         self.assertEqual(stdout.getvalue(), "")
         self.assertEqual(stderr.getvalue(), "")
+
+    def test_runner_captures_safe_reason_from_structured_error(self) -> None:
+        files = helper_runtime.TaskFiles(
+            json_path=Path("job/product.json"),
+            images_path=Path("job/images.zip"),
+            work_dir=Path("job/work"),
+        )
+
+        def failing_runner(_argv: object) -> int:
+            print(
+                '{"status":"paused_for_user",'
+                '"error":"请先登录得物商家后台（ticket=secret-ticket-value）"}',
+                file=sys.stderr,
+            )
+            return 2
+
+        result = helper_runtime.run_automation(files, 17321, runner=failing_runner)
+
+        self.assertEqual(result.exit_code, 2)
+        self.assertEqual(result.message, "请先登录得物商家后台（ticket=[已打码]）")
+
+    def test_runner_redacts_authorization_scheme_values(self) -> None:
+        files = helper_runtime.TaskFiles(
+            json_path=Path("job/product.json"),
+            images_path=Path("job/images.zip"),
+            work_dir=Path("job/work"),
+        )
+
+        def failing_runner(_argv: object) -> int:
+            print("Authorization: Bearer secret-jwt-value", file=sys.stderr)
+            return 4
+
+        result = helper_runtime.run_automation(files, 17321, runner=failing_runner)
+
+        self.assertEqual(result.message, "Authorization=[已打码]")
 
 
 if __name__ == "__main__":

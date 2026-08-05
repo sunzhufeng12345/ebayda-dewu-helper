@@ -27,8 +27,7 @@ from helper_runtime import (
 )
 
 
-API_ORIGIN = "http://101.34.90.101:10112"
-LEGACY_API_ORIGIN = "https://www.ebayda.com"
+API_ORIGIN = "https://www.ebayda.com"
 CLAIM_TIMEOUT_SECONDS = 10
 EVENT_TIMEOUT_SECONDS = 10
 BINDING_TIMEOUT_SECONDS = 10
@@ -44,9 +43,7 @@ class HelperError(RuntimeError):
 
 def _configured_api_origin() -> str:
     origin = os.environ.get("EBAYDA_API_ORIGIN", API_ORIGIN).rstrip("/")
-    if origin in {API_ORIGIN, LEGACY_API_ORIGIN}:
-        # The Tencent Cloud IP is the current deployment; the HTTPS domain
-        # remains accepted for older installations during DNS migration.
+    if origin == API_ORIGIN:
         return origin
 
     if os.environ.get("EBAYDA_ALLOW_LOCAL_API") != "1":
@@ -363,6 +360,7 @@ def post_event(
     job: ClaimedJob,
     status: str,
     *,
+    message: str | None = None,
     open_url=open_no_redirect,
 ) -> None:
     api_origin = _configured_api_origin()
@@ -374,8 +372,11 @@ def post_event(
         "failed",
     }:
         raise HelperError("不支持的任务状态")
+    event: dict[str, str] = {"status": status}
+    if message:
+        event["message"] = _safe_event_message(message)
     body = json.dumps(
-        {"status": status},
+        event,
         ensure_ascii=False,
         separators=(",", ":"),
     ).encode("utf-8")
@@ -415,7 +416,9 @@ def execute_claimed_job(payload: Mapping[str, Any]) -> tuple[str, str, str]:
         profile = shop_profile(app_root, job.shop_id)
         port = ensure_chrome(profile)
         post_event(job, "running")
-        exit_code = run_automation(files, port)
+        automation = run_automation(files, port)
+        exit_code = getattr(automation, "exit_code", automation)
+        automation_message = getattr(automation, "message", None)
     except (HelperError, TaskExecutionError) as error:
         _post_final_event(job, "failed")
         raise HelperError(str(error)) from None
@@ -434,15 +437,30 @@ def execute_claimed_job(payload: Mapping[str, Any]) -> tuple[str, str, str]:
         status = "paused_for_user"
     else:
         status = "failed"
-    _post_final_event(job, status)
+    _post_final_event(job, status, automation_message)
     return status, job.job_id, job.shop_id
 
 
-def _post_final_event(job: ClaimedJob, status: str) -> None:
+def _post_final_event(job: ClaimedJob, status: str, message: str | None = None) -> None:
     try:
-        post_event(job, status)
+        if message:
+            post_event(job, status, message=message)
+        else:
+            post_event(job, status)
     except HelperError:
         pass
+
+
+def _safe_event_message(value: object) -> str:
+    message = " ".join(str(value).split())
+    message = re.sub(
+        r"(?i)\b(ticket|job[_-]?token|jwt|password|authorization)\b"
+        r"(\s*[:=]\s*)(?:(?:bearer|jobtoken|launchticket)\s+)?"
+        r"[A-Za-z0-9._~+/=-]+",
+        r"\1=[已打码]",
+        message,
+    )
+    return message[:500]
 
 
 def _run_binding(request: BindingRequest) -> int:

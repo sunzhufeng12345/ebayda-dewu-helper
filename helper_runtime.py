@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import io
+import json
 import os
 import re
 import shutil
@@ -27,12 +29,23 @@ SAFE_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
 TRUSTED_DOWNLOAD_ORIGINS = {
     ("https", "www.ebayda.com", None),
     ("https", "www.ebayda.com", 443),
-    ("http", "101.34.90.101", 10112),
 }
+SENSITIVE_MESSAGE_PATTERN = re.compile(
+    r"(?i)\b(ticket|job[_-]?token|jwt|password|authorization)\b"
+    r"(\s*[:=]\s*)(?:(?:bearer|jobtoken|launchticket)\s+)?"
+    r"[A-Za-z0-9._~+/=-]+"
+)
+MAX_AUTOMATION_MESSAGE_LENGTH = 500
 
 
 class TaskExecutionError(RuntimeError):
     """A claimed task cannot be prepared or executed safely."""
+
+
+@dataclass(frozen=True)
+class AutomationRun:
+    exit_code: int
+    message: str | None = None
 
 
 class NoRedirectHandler(HTTPRedirectHandler):
@@ -271,7 +284,7 @@ def run_automation(
     port: int,
     *,
     runner: Callable[[Sequence[str]], int] = dewu_main.main,
-) -> int:
+) -> AutomationRun:
     arguments = [
         "--json",
         str(files.json_path),
@@ -283,10 +296,76 @@ def run_automation(
         str(port),
         "--execute",
     ]
-    with open(os.devnull, "w", encoding="utf-8") as sink, redirect_stdout(
-        sink
-    ), redirect_stderr(sink):
-        return runner(arguments)
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    with redirect_stdout(stdout), redirect_stderr(stderr):
+        exit_code = runner(arguments)
+    return AutomationRun(
+        exit_code=exit_code,
+        message=(
+            _automation_message(stdout.getvalue(), stderr.getvalue())
+            if exit_code != 0
+            else None
+        ),
+    )
+
+
+def _automation_message(stdout: str, stderr: str) -> str | None:
+    for stream in (stderr, stdout):
+        for payload in reversed(_json_payloads(stream)):
+            if not isinstance(payload, Mapping):
+                continue
+            error = _safe_message(payload.get("error"))
+            if error:
+                return error
+            validation_errors = payload.get("validation_errors")
+            if isinstance(validation_errors, list):
+                for item in validation_errors:
+                    message = _safe_message(item)
+                    if message:
+                        return message
+            message = _safe_message(payload.get("message"))
+            if message:
+                return message
+
+    for line in reversed(stderr.splitlines()):
+        message = _safe_message(line)
+        if message:
+            return message
+    return None
+
+
+def _json_payloads(text: str) -> list[object]:
+    stripped = text.strip()
+    if not stripped:
+        return []
+    try:
+        return [json.loads(stripped)]
+    except json.JSONDecodeError:
+        pass
+
+    decoder = json.JSONDecoder()
+    payloads: list[object] = []
+    offset = 0
+    while True:
+        start = text.find("{", offset)
+        if start < 0:
+            return payloads
+        try:
+            payload, end = decoder.raw_decode(text, start)
+        except json.JSONDecodeError:
+            offset = start + 1
+            continue
+        payloads.append(payload)
+        offset = end
+
+
+def _safe_message(value: object) -> str:
+    if not isinstance(value, str):
+        return ""
+    message = " ".join(value.split())
+    message = SENSITIVE_MESSAGE_PATTERN.sub(r"\1=[已打码]", message)
+    return message[:MAX_AUTOMATION_MESSAGE_LENGTH]
 
 
 def _read_devtools_port(path: Path) -> int | None:

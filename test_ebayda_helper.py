@@ -161,7 +161,7 @@ class BindingClaimTests(unittest.TestCase):
         }
         self.assertEqual(
             http_request.full_url,
-            "http://101.34.90.101:10112/api/automation/shop-bindings/claim",
+			"https://www.ebayda.com/api/automation/shop-bindings/claim",
         )
         self.assertEqual(http_request.get_method(), "POST")
         self.assertEqual(http_request.data, b"")
@@ -224,11 +224,11 @@ class TaskExecutionCleanupTests(unittest.TestCase):
 
 
 class ApiOriginTests(unittest.TestCase):
-    def test_api_origin_defaults_to_tencent_cloud(self) -> None:
+    def test_api_origin_defaults_to_https_public_origin(self) -> None:
         with patch.dict(os.environ, {}, clear=True):
             self.assertEqual(
                 ebayda_helper._configured_api_origin(),
-                "http://101.34.90.101:10112",
+                "https://www.ebayda.com",
             )
 
     def test_local_api_origin_requires_explicit_test_flag(self) -> None:
@@ -242,7 +242,7 @@ class ApiOriginTests(unittest.TestCase):
         ):
             ebayda_helper._configured_api_origin()
 
-    def test_tencent_cloud_api_origin_is_allowed_with_remote_test_flag(self) -> None:
+    def test_plain_http_remote_origin_is_rejected(self) -> None:
         with patch.dict(
             os.environ,
             {
@@ -250,11 +250,8 @@ class ApiOriginTests(unittest.TestCase):
                 "EBAYDA_ALLOW_REMOTE_API": "1",
             },
             clear=True,
-        ):
-            self.assertEqual(
-                ebayda_helper._configured_api_origin(),
-                "http://101.34.90.101:10112",
-            )
+        ), self.assertRaises(ebayda_helper.HelperError):
+            ebayda_helper._configured_api_origin()
 
     def test_local_api_origin_rewrites_claimed_resource_paths_only(self) -> None:
         payload = {
@@ -357,7 +354,7 @@ class ClaimJobTests(unittest.TestCase):
         }
         self.assertEqual(
             http_request.full_url,
-            "http://101.34.90.101:10112/api/automation/jobs/job_abc-123/claim",
+			"https://www.ebayda.com/api/automation/jobs/job_abc-123/claim",
         )
         self.assertEqual(http_request.get_method(), "POST")
         self.assertEqual(http_request.data, b"")
@@ -626,13 +623,33 @@ class EventTests(unittest.TestCase):
         headers = {name.casefold(): value for name, value in request.header_items()}
         self.assertEqual(
             request.full_url,
-            "http://101.34.90.101:10112/api/automation/jobs/job_1/events",
+			"https://www.ebayda.com/api/automation/jobs/job_1/events",
         )
         self.assertEqual(request.get_method(), "POST")
         self.assertEqual(json.loads(request.data), {"status": "running"})
         self.assertEqual(headers["authorization"], "JobToken abcdefghijklmnop")
         self.assertEqual(headers["content-type"], "application/json; charset=utf-8")
         self.assertEqual(timeout, ebayda_helper.EVENT_TIMEOUT_SECONDS)
+
+    def test_event_includes_safe_reason_when_provided(self) -> None:
+        captured: list[object] = []
+
+        def open_url(request: object, *, timeout: int) -> _EventResponse:
+            captured.append(request)
+            return _EventResponse()
+
+        ebayda_helper.post_event(
+            self.job,
+            "paused_for_user",
+            message="请先登录（job_token=secret-job-token）",
+            open_url=open_url,
+        )
+
+        request = captured[0]
+        self.assertEqual(
+            json.loads(request.data),
+            {"status": "paused_for_user", "message": "请先登录（job_token=[已打码]）"},
+        )
 
     def test_execution_emits_stages_in_order(self) -> None:
         calls: list[str] = []
@@ -701,6 +718,34 @@ class EventTests(unittest.TestCase):
                 result = ebayda_helper.execute_claimed_job(self.payload)
 
             self.assertEqual(result[0], status)
+
+    def test_automation_reason_is_sent_with_terminal_event(self) -> None:
+        files = helper_runtime.TaskFiles(Path("product.json"), Path("images.zip"), Path("work"))
+        events: list[tuple[str, str | None]] = []
+
+        def post_event(_job: object, status: str, **kwargs: object) -> None:
+            events.append((status, kwargs.get("message")))
+
+        with patch.object(
+            ebayda_helper, "application_root", return_value=Path("app")
+        ), patch.object(ebayda_helper, "post_event", side_effect=post_event), patch.object(
+            ebayda_helper, "prepare_job_files", return_value=files
+        ), patch.object(
+            ebayda_helper, "shop_profile", return_value=Path("profile")
+        ), patch.object(
+            ebayda_helper, "ensure_chrome", return_value=17321
+        ), patch.object(
+            ebayda_helper,
+            "run_automation",
+            return_value=helper_runtime.AutomationRun(
+                exit_code=2,
+                message="请先登录得物商家后台",
+            ),
+        ):
+            result = ebayda_helper.execute_claimed_job(self.payload)
+
+        self.assertEqual(result[0], "paused_for_user")
+        self.assertEqual(events[-1], ("paused_for_user", "请先登录得物商家后台"))
 
     def test_pre_browser_failure_reports_failed(self) -> None:
         events: list[str] = []

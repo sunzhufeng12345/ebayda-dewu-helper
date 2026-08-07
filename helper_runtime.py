@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterator, Sequence
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlunparse
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 import main as dewu_main
@@ -46,6 +46,7 @@ class TaskExecutionError(RuntimeError):
 class AutomationRun:
     exit_code: int
     message: str | None = None
+    status: str | None = None
 
 
 class NoRedirectHandler(HTTPRedirectHandler):
@@ -64,6 +65,7 @@ class ClaimedJob:
     job_token: str
     product_json_url: str
     images_zip_url: str
+    event_url: str
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> "ClaimedJob":
@@ -93,6 +95,7 @@ class ClaimedJob:
             job_token=job_token,
             product_json_url=product_json_url,
             images_zip_url=images_zip_url,
+            event_url=_event_url(product_json_url),
         )
 
 
@@ -145,18 +148,60 @@ def application_root() -> Path:
 
 @contextmanager
 def instance_lock(app_root: Path) -> Iterator[None]:
+    with _file_lock(
+        app_root / "instance.lock",
+        create_error="无法创建助手运行锁",
+        busy_error="助手正在执行另一个任务，请稍后重试",
+    ):
+        yield
+
+
+@contextmanager
+def resident_lock(app_root: Path) -> Iterator[None]:
+    with _file_lock(
+        app_root / "resident.lock",
+        create_error="无法创建常驻助手运行锁",
+        busy_error="常驻助手已在运行",
+    ):
+        yield
+
+
+@contextmanager
+def shop_execution_lock(app_root: Path, shop_id: str) -> Iterator[None]:
+    if not SAFE_ID_PATTERN.fullmatch(shop_id):
+        raise TaskExecutionError("无法创建店铺执行锁：shop_id 格式错误")
+    with _file_lock(
+        app_root / "execution-locks" / f"{shop_id}.lock",
+        create_error="无法创建店铺执行锁",
+        busy_error="",
+        wait=True,
+    ):
+        yield
+
+
+@contextmanager
+def _file_lock(
+    path: Path,
+    *,
+    create_error: str,
+    busy_error: str,
+    wait: bool = False,
+) -> Iterator[None]:
     try:
-        app_root.mkdir(parents=True, exist_ok=True)
-        lock_file = (app_root / "instance.lock").open("a+b")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        lock_file = path.open("a+b")
     except OSError:
-        raise TaskExecutionError("无法创建助手运行锁") from None
+        raise TaskExecutionError(create_error) from None
 
     try:
-        _acquire_file_lock(lock_file)
-    except OSError:
-        lock_file.close()
-        raise TaskExecutionError("助手正在执行另一个任务，请稍后重试") from None
-    try:
+        while True:
+            try:
+                _acquire_file_lock(lock_file)
+                break
+            except OSError:
+                if not wait:
+                    raise TaskExecutionError(busy_error) from None
+                time.sleep(0.2)
         yield
     finally:
         lock_file.close()
@@ -300,14 +345,21 @@ def run_automation(
     stderr = io.StringIO()
     with redirect_stdout(stdout), redirect_stderr(stderr):
         exit_code = runner(arguments)
+    output = stdout.getvalue()
+    errors = stderr.getvalue()
     return AutomationRun(
         exit_code=exit_code,
-        message=(
-            _automation_message(stdout.getvalue(), stderr.getvalue())
-            if exit_code != 0
-            else None
-        ),
+        message=_automation_message(output, errors) if exit_code != 0 else None,
+        status=_automation_status(output, errors),
     )
+
+
+def _automation_status(stdout: str, stderr: str) -> str | None:
+    for stream in (stderr, stdout):
+        for payload in reversed(_json_payloads(stream)):
+            if isinstance(payload, Mapping) and isinstance(payload.get("status"), str):
+                return payload["status"]
+    return None
 
 
 def _automation_message(stdout: str, stderr: str) -> str | None:
@@ -417,18 +469,37 @@ def _trusted_resource_url(value: object, job_id: str, resource: str) -> str:
         port = parsed.port
     except ValueError as error:
         raise TaskExecutionError("任务数据错误：下载地址格式错误") from error
-    expected_path = f"/api/automation/jobs/{job_id}/{resource}"
+    expected_paths = {
+        f"/api/automation/jobs/{job_id}/{resource}",
+        f"/api/automation/batch-items/{job_id}/{resource}",
+    }
     if (
         (parsed.scheme.casefold(), parsed.hostname, port)
         not in TRUSTED_DOWNLOAD_ORIGINS
         or parsed.username is not None
         or parsed.password is not None
-        or parsed.path != expected_path
+        or parsed.path not in expected_paths
         or parsed.params
         or parsed.fragment
     ):
         raise TaskExecutionError("任务数据错误：下载地址不受信任")
     return url
+
+
+def _event_url(product_json_url: str) -> str:
+    parsed = urlparse(product_json_url)
+    if not parsed.path.endswith("/product-json"):
+        raise TaskExecutionError("任务数据错误：下载地址不受信任")
+    return urlunparse(
+        (
+            parsed.scheme,
+            parsed.netloc,
+            parsed.path.removesuffix("/product-json") + "/events",
+            "",
+            parsed.query,
+            "",
+        )
+    )
 
 
 def _download(

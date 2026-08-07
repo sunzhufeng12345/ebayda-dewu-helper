@@ -1,5 +1,5 @@
 #define MyAppName "Ebayda Helper"
-#define MyAppVersion "0.1.0"
+#define MyAppVersion "0.3.0"
 #define MyAppExeName "EbaydaHelper.exe"
 
 [Setup]
@@ -28,3 +28,7 @@ Root: HKCU; Subkey: "Software\Classes\ebayda"; ValueType: string; ValueName: "";
 Root: HKCU; Subkey: "Software\Classes\ebayda"; ValueType: string; ValueName: "URL Protocol"; ValueData: ""
 Root: HKCU; Subkey: "Software\Classes\ebayda\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\{#MyAppExeName},0"
 Root: HKCU; Subkey: "Software\Classes\ebayda\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#MyAppExeName}"" ""%1"""
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "EbaydaHelper"; ValueData: """{app}\{#MyAppExeName}"" --resident"; Flags: uninsdeletevalue
+
+[Run]
+Filename: "{app}\{#MyAppExeName}"; Parameters: "--resident"; Flags: nowait skipifsilent

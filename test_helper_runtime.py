@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -8,7 +9,7 @@ from contextlib import redirect_stderr, redirect_stdout
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from inspect import signature
 from pathlib import Path
-from threading import Thread
+from threading import Event, Thread
 from types import SimpleNamespace
 from unittest.mock import patch
 from urllib.error import HTTPError, URLError
@@ -115,6 +116,24 @@ class ClaimedJobTests(unittest.TestCase):
                 helper_runtime.ClaimedJob.from_payload(
                     valid_payload(product_json_url=url)
                 )
+
+    def test_batch_item_resources_get_a_derived_trusted_event_url(self) -> None:
+        job = helper_runtime.ClaimedJob.from_payload(
+            valid_payload(
+                job_id="item_1",
+                product_json_url=(
+                    "https://www.ebayda.com/api/automation/batch-items/item_1/product-json"
+                ),
+                images_zip_url=(
+                    "https://www.ebayda.com/api/automation/batch-items/item_1/images"
+                ),
+            )
+        )
+
+        self.assertEqual(
+            job.event_url,
+            "https://www.ebayda.com/api/automation/batch-items/item_1/events",
+        )
 
     def test_required_tokens_and_fields_are_validated(self) -> None:
         invalid_updates = (
@@ -341,6 +360,76 @@ class InstanceLockTests(unittest.TestCase):
         self.assertEqual(len(calls), 1)
         self.assertEqual(calls[0][1:], (fake_msvcrt.LK_NBLCK, 1))
 
+    def test_resident_lock_does_not_block_the_legacy_launch_lock(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with helper_runtime.resident_lock(root):
+                with helper_runtime.instance_lock(root):
+                    pass
+
+    def test_shop_execution_locks_are_scoped_to_each_shop(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with helper_runtime.shop_execution_lock(root, "101"):
+                with helper_runtime.shop_execution_lock(root, "102"):
+                    pass
+
+            self.assertTrue((root / "execution-locks" / "101.lock").is_file())
+            self.assertTrue((root / "execution-locks" / "102.lock").is_file())
+
+    def test_same_shop_execution_lock_waits_for_another_process(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            script = (
+                "from pathlib import Path\n"
+                "import sys\n"
+                "from helper_runtime import shop_execution_lock\n"
+                "with shop_execution_lock(Path(sys.argv[1]), '101'):\n"
+                "    print('locked', flush=True)\n"
+                "    sys.stdin.read(1)\n"
+            )
+            child = subprocess.Popen(
+                [
+                    sys.executable,
+                    "-c",
+                    script,
+                    str(root),
+                ],
+                cwd=Path(__file__).parent,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                text=True,
+            )
+            try:
+                self.assertEqual(child.stdout.readline().strip(), "locked")
+                acquired = Event()
+
+                def wait_for_lock() -> None:
+                    with helper_runtime.shop_execution_lock(root, "101"):
+                        acquired.set()
+
+                waiter = Thread(
+                    target=wait_for_lock,
+                    daemon=True,
+                )
+                waiter.start()
+                self.assertFalse(acquired.wait(0.2))
+                child.stdin.write("x")
+                child.stdin.flush()
+                child.stdin.close()
+                self.assertEqual(child.wait(timeout=5), 0)
+                self.assertTrue(acquired.wait(5))
+                waiter.join(timeout=5)
+                self.assertFalse(waiter.is_alive())
+            finally:
+                if child.poll() is None:
+                    child.terminate()
+                    child.wait(timeout=5)
+                if child.stdin is not None and not child.stdin.closed:
+                    child.stdin.close()
+                if child.stdout is not None and not child.stdout.closed:
+                    child.stdout.close()
+
 
 class ChromeRuntimeTests(unittest.TestCase):
     def test_shop_profile_is_under_application_data(self) -> None:
@@ -527,7 +616,27 @@ class AutomationRunnerTests(unittest.TestCase):
         result = helper_runtime.run_automation(files, 17321, runner=failing_runner)
 
         self.assertEqual(result.exit_code, 2)
+        self.assertEqual(result.status, "paused_for_user")
         self.assertEqual(result.message, "请先登录得物商家后台（ticket=[已打码]）")
+
+    def test_runner_keeps_an_unconfirmed_draft_status(self) -> None:
+        files = helper_runtime.TaskFiles(
+            json_path=Path("job/product.json"),
+            images_path=Path("job/images.zip"),
+            work_dir=Path("job/work"),
+        )
+
+        def failing_runner(_argv: object) -> int:
+            print(
+                '{"status":"not_saved","error":"没有捕获到保存草稿成功提示"}',
+                file=sys.stderr,
+            )
+            return 3
+
+        result = helper_runtime.run_automation(files, 17321, runner=failing_runner)
+
+        self.assertEqual(result.exit_code, 3)
+        self.assertEqual(result.status, "not_saved")
 
     def test_runner_redacts_authorization_scheme_values(self) -> None:
         files = helper_runtime.TaskFiles(

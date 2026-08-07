@@ -165,6 +165,8 @@ from models import (
 # 下面这些值是得物页面的业务默认值，不是来源商品事实；如果商家账号的口径不同，
 # 只需要在这里调整默认值，来源 JSON 的解析逻辑不需要跟着修改。
 DEFAULT_OFFER_TYPE = "直发"
+# 销售规格批量设置工具栏提供“上架/下架”选择；新品流程默认要求上架。
+DEFAULT_SKU_LISTING_STATUS = "上架"
 DEFAULT_PRICE_PROOF_SOURCE = "品牌官网"
 DEFAULT_RELEASE_PROOF_SOURCE = "品牌官网"
 
@@ -217,10 +219,21 @@ MAX_CAROUSEL_FILE_BYTES = 5 * 1024 * 1024
 MAX_DETAIL_FILE_BYTES = 20 * 1024 * 1024
 # 页面状态已经由显式回显校验保护；更短轮询减少异步更新后的空等。
 WAIT_POLL_INTERVAL = 0.08
+# 高频轮询里的元素查询不应各自阻塞一整秒；关键单次查找仍显式使用 1 秒。
+ELEMENT_QUERY_TIMEOUT = 0.2
+# 新建申请后的标题由得物异步生成；只在标题控件尚未挂载时使用这段等待。
+TITLE_READY_TIMEOUT = 15.0
 
 
 class AutomationError(RuntimeError):
     """当前页面无法安全验证或修改时抛出的自动化异常。"""
+
+
+@dataclass(frozen=True)
+class _SkuBatchCell:
+    """Text-only key cell paired with the separate fixed table clone."""
+
+    text: str
 
 
 @dataclass(frozen=True)
@@ -427,6 +440,10 @@ class DewuStartPage:
             raise AutomationError(f"起始页商品链接不是空值：{value}")
 
     def _create_application(self) -> Any:
+        # 平台版本可能新开详情标签页，也可能直接复用当前起始页导航。
+        # 记录起始 URL 后仅接受“当前页已变成详情页”的这一种复用情况，
+        # 不会把创建前就存在的旧草稿页误当成本次申请。
+        start_tab_url = str(self.tab.url)
         before_urls = {
             str(tab.url)
             for tab in self.browser.get_tabs()
@@ -444,7 +461,19 @@ class DewuStartPage:
                 raise AutomationError(
                     f"创建新品申请后出现多个新详情页：{len(candidates)}"
                 )
-            return candidates[0] if candidates else None
+            if candidates:
+                return candidates[0]
+
+            # 某些 Windows/Chrome 配置不会新建 tab，而是让当前 tab
+            # 导航到详情 URL；只有 URL 真的发生变化且不属于旧草稿才接受。
+            current_url = str(self.tab.url)
+            if (
+                current_url != start_tab_url
+                and current_url not in before_urls
+                and _is_detail_page_url(current_url)
+            ):
+                return self.tab
+            return None
 
         detail_tab = self._wait_until(
             locate_created_tab,
@@ -456,6 +485,8 @@ class DewuStartPage:
         except Exception as error:
             raise AutomationError("无法激活创建后的新品详情页") from error
         self.tab = detail_tab
+        # 进入新详情页后先固定等待两秒，让页面脚本完成初始化再继续。
+        time.sleep(2)
         self.result.page_url = str(detail_tab.url)
         self.result.completed_sections.append("new_product_start")
         return detail_tab
@@ -548,16 +579,22 @@ class DewuStartPage:
         return next((_item for _item in options if _has_layout(_item)), None)
 
     def _find_visible(self, xpath: str, description: str) -> Any:
-        elements = self._visible_elements(xpath)
+        elements = self._visible_elements(xpath, timeout=1)
         if not elements:
             raise AutomationError(f"找不到{description}")
         return elements[0]
 
-    def _visible_elements(self, xpath: str, *, scope: Any | None = None) -> list[Any]:
+    def _visible_elements(
+        self,
+        xpath: str,
+        *,
+        scope: Any | None = None,
+        timeout: float = ELEMENT_QUERY_TIMEOUT,
+    ) -> list[Any]:
         locator = xpath if xpath.startswith("xpath:") else f"xpath:{xpath}"
         owner = scope or self.tab
         try:
-            elements = owner.eles(locator, timeout=1)
+            elements = owner.eles(locator, timeout=timeout)
         except TypeError:
             elements = owner.eles(locator)
         return [element for element in elements if _is_displayed(element)]
@@ -579,7 +616,9 @@ class DewuStartPage:
         timeout: float | None = None,
         message: str = "等待页面状态变化超时",
     ) -> Any:
-        deadline = time.monotonic() + (timeout or self.settings.timeout)
+        deadline = time.monotonic() + (
+            timeout if timeout is not None else self.settings.timeout
+        )
         last_error: Exception | None = None
         while time.monotonic() < deadline:
             try:
@@ -588,7 +627,9 @@ class DewuStartPage:
                     return value
             except Exception as error:
                 last_error = error
-            time.sleep(WAIT_POLL_INTERVAL)
+            remaining = deadline - time.monotonic()
+            if remaining > 0:
+                time.sleep(min(WAIT_POLL_INTERVAL, remaining))
         if last_error:
             raise AutomationError(f"{message}：{last_error}") from last_error
         raise AutomationError(message)
@@ -717,6 +758,18 @@ class DewuAutomation:
             raise AutomationError("页面未显示“申请新品”，可能尚未加载完成或登录已过期")
 
     def _fill_title(self) -> None:
+        # 新建详情页偶尔先返回“普通标题/空内容”，随后才挂载结构化标题控件。
+        # 先短轮询；新建页仍未就绪时刷新一次详情页，再补填基础字段后重试。
+        title_inputs = self._wait_for_structured_title_inputs()
+        if title_inputs is None and "new_product_start" in self.result.completed_sections:
+            self._reload_title_page()
+            title_inputs = self._wait_for_structured_title_inputs()
+        if title_inputs is None:
+            raise AutomationError(
+                "结构化标题控件未准备好：页面仍是普通标题或标题服务没有返回内容；"
+                f"页面状态={self._title_page_state()}"
+            )
+
         # 结构化标题的三段分别写入独立控件，同时在写入前检查平台要求的总长度。
         self._fill_placeholder("卖点提炼", self.product.title.selling_point)
         self._fill_placeholder("类目", self.product.title.category)
@@ -732,6 +785,77 @@ class DewuAutomation:
         )
         if len(title_text) < 16 or len(title_text) > 60:
             raise AutomationError(f"结构化标题长度不合法：{len(title_text)}，标题={title_text}")
+
+    def _wait_for_structured_title_inputs(self) -> tuple[Any, Any] | None:
+        """Wait for the two editable structured-title segments to be mounted."""
+
+        def locate() -> tuple[Any, Any] | None:
+            selling_inputs = self._visible_elements(
+                "//main//input[@placeholder='卖点提炼']"
+            )
+            category_inputs = self._visible_elements(
+                "//main//input[@placeholder='类目']"
+            )
+            if len(selling_inputs) > 1 or len(category_inputs) > 1:
+                raise AutomationError(
+                    "结构化标题输入框数量异常："
+                    f"卖点提炼={len(selling_inputs)}，类目={len(category_inputs)}"
+                )
+            if len(selling_inputs) == 1 and len(category_inputs) == 1:
+                return selling_inputs[0], category_inputs[0]
+            return None
+
+        timeout = max(
+            float(getattr(self.settings, "timeout", 12.0)),
+            TITLE_READY_TIMEOUT,
+        )
+        try:
+            return self._wait_until(
+                locate,
+                timeout=timeout,
+                message="等待结构化标题控件加载超时",
+            )
+        except AutomationError:
+            return None
+
+    def _reload_title_page(self) -> None:
+        """Refresh a just-created detail page once to retry async title generation."""
+
+        try:
+            self.tab.refresh()
+        except Exception as error:
+            raise AutomationError("结构化标题未就绪，且详情页刷新失败") from error
+
+        self._wait_until(
+            lambda: bool(
+                self._visible_elements(
+                    "//main//div[contains(@class,'titleContainer')]"
+                )
+            )
+            and bool(
+                self._visible_elements(
+                    "//button[normalize-space(.)='保存草稿']"
+                )
+            ),
+            timeout=max(float(getattr(self.settings, "timeout", 12.0)), 15.0),
+            message="刷新详情页后页面没有完成加载",
+        )
+        # 刷新会丢掉未保存的基础字段；重新填写后再让标题服务按当前人群计算。
+        self._fill_basic_fields()
+        self.result.warnings.append(
+            "新建详情页首次返回普通标题，已刷新页面并重试结构化标题"
+        )
+
+    def _title_page_state(self) -> str:
+        labels = self._visible_elements(
+            "//main//*[contains(concat(' ',normalize-space(@class),' '),' titleTypeLabel ')]"
+        )
+        title_values = self._visible_elements(
+            "//main//*[contains(concat(' ',normalize-space(@class),' '),' finallyTitle ')]"
+        )
+        label = re.sub(r"\s+", " ", labels[0].text).strip() if labels else "未知类型"
+        value = re.sub(r"\s+", " ", title_values[0].text).strip() if title_values else ""
+        return f"{label}，{value or '标题内容为空'}"
 
     def _fill_basic_fields(self) -> None:
         # 基础字段包含货号、发售价格和发售日期；日期统一选择当天，证明渠道使用运行配置。
@@ -1215,6 +1339,51 @@ class DewuAutomation:
         self.result.warnings.append("已按 --skip-size-chart 跳过尺码表")
 
     def _fill_skus(self) -> None:
+        """Fill shared sales-spec fields through the page's batch toolbar."""
+        if not self._fill_skus_batch():
+            raise AutomationError("销售规格批量设置工具栏未找到")
+
+    def _fill_skus_batch(self) -> bool:
+        """Fill common SKU fields via the always-visible batch toolbar, then write codes."""
+        root = self._sku_batch_root()
+        if root is None:
+            return False
+
+        expected = set(self.product.sku_by_variant)
+        if not expected:
+            raise AutomationError("来源没有可填写的 SKU")
+
+        # 批量工具栏负责所有 SKU 的公共字段；商品编码随后按当前分页逐页回写。
+        self._go_to_first_sku_page()
+
+        self._reset_sku_batch_table_view(root)
+
+        batch_values = self._sku_batch_values()
+        for field_id, value in batch_values.items():
+            if field_id in {"biddingCode", "status"}:
+                self._set_sku_batch_select(root, field_id, value)
+            else:
+                self._set_sku_batch_input(root, field_id, value)
+
+        batch_button = self._find_visible(
+            ".//button[normalize-space(.)='批量设置']",
+            "销售规格批量设置按钮",
+            scope=root,
+        )
+        self._dom_click(batch_button, "销售规格批量设置按钮")
+        self._reset_sku_batch_table_view(self._require_sku_batch_root())
+        self._wait_until(
+            lambda: self._sku_batch_rows_match(expected, batch_values),
+            message="销售规格批量设置回显失败",
+        )
+
+        # 批量设置已经写入所有公共字段，只剩商品编码和辅助商品编码需要逐行填写，
+        # 避免给每个 SKU 都重复操作一次下拉框。
+        self._fill_sku_batch_codes(expected)
+        self.result.sku_rows = len(expected)
+        return True
+
+    def _fill_skus_rowwise(self) -> None:
         # 尺码表保存后页面会生成颜色×尺码的 SKU 表，表格可能分页。
         # 逐页按颜色和尺码匹配来源记录，同时用页面文本签名检测分页是否真的变化。
         expected = set(self.product.sku_by_variant)
@@ -1230,7 +1399,8 @@ class DewuAutomation:
 
         while True:
             # 每次循环只处理当前页，直到下一页按钮不存在或已禁用。
-            rows = self._sku_rows()
+            row_parts = self._sku_row_parts()
+            rows = [row for row, _cells, _inputs in row_parts]
             if not rows:
                 raise AutomationError("销售规格表没有可填写的 SKU 行")
             signature = "|".join(row.text[:120] for row in rows)
@@ -1238,9 +1408,8 @@ class DewuAutomation:
                 raise AutomationError("SKU 分页没有变化，停止以避免重复填写")
             first_page_signature = signature
 
-            for row in rows:
+            for row, cells, inputs in row_parts:
                 # 页面顺序不必与来源顺序相同，所以不能按索引填写，必须按规格键匹配。
-                cells = row.eles("xpath:./td")
                 if len(cells) < 2:
                     continue
                 color = cells[0].text.strip()
@@ -1251,7 +1420,9 @@ class DewuAutomation:
                     raise AutomationError(f"页面出现来源中不存在的 SKU：{color}/{size}")
                 if key in processed:
                     raise AutomationError(f"页面 SKU 重复：{color}/{size}")
-                self._fill_sku_row(row, sku)
+                # _sku_row_parts() 已确认该行至少有 9 个输入框；复用这次查询结果，
+                # 避免每条 SKU 再发起相同的远程 DOM 查询。
+                self._fill_sku_row(row, sku, inputs=inputs)
                 processed.add(key)
 
             next_button = self._next_page_button()
@@ -1269,14 +1440,400 @@ class DewuAutomation:
             )
         self.result.sku_rows = len(processed)
 
-    def _fill_sku_row(self, row: Any, sku: SkuData) -> None:
+    def _sku_batch_values(self) -> dict[str, str]:
+        """Build the common values accepted by the sales-spec batch toolbar."""
+        package = self.settings.package_defaults
+        package_values = {
+            "length": package.get("length_cm"),
+            "width": package.get("width_cm"),
+            "height": package.get("height_cm"),
+            "weight": package.get("weight_kg"),
+        }
+        missing = [field_id for field_id, value in package_values.items() if value in (None, "")]
+        if missing:
+            raise AutomationError(
+                f"销售规格批量设置缺少包装参数：{', '.join(missing)}"
+            )
+
+        offers = {_number_text(sku.offer_amount) for sku in self.product.skus}
+        if len(offers) != 1:
+            raise AutomationError(
+                f"SKU 出价不一致，无法安全批量设置：{sorted(offers)}"
+            )
+        inventories = {str(sku.inventory) for sku in self.product.skus}
+        if len(inventories) != 1:
+            raise AutomationError(
+                f"SKU 库存不一致，无法安全批量设置：{sorted(inventories)}"
+            )
+
+        return {
+            **{field_id: str(value) for field_id, value in package_values.items()},
+            "biddingCode": str(self.settings.offer_type),
+            "bidPrice": next(iter(offers)),
+            "stock": next(iter(inventories)),
+            "status": DEFAULT_SKU_LISTING_STATUS,
+        }
+
+    def _sku_batch_root(self) -> Any | None:
+        # 批量设置工具栏和销售规格表格共用同一个 sell-skus-content 容器，
+        # 普通视图和全屏视图都是这个容器，不再需要先进入全屏。部分页面
+        # 版本会改名，但仍保留“批量设置”按钮和这些批量字段，按结构再兜底定位。
+        roots = self._visible_elements(
+            "//main//div[contains(@class,'sell-skus-content')]"
+        )
+        roots = [root for root in roots if _has_layout(root)]
+        if len(roots) == 1:
+            return roots[0]
+        if len(roots) > 1:
+            raise AutomationError(f"销售规格容器数量异常：{len(roots)}")
+
+        buttons = self._visible_elements(
+            "//main//button[normalize-space(.)='批量设置']"
+        )
+        if len(buttons) != 1:
+            return None
+        candidates = self._scoped_elements(
+            buttons[0],
+            "xpath:./ancestor::*[.//input[@id='length'] and "
+            ".//input[@id='width'] and .//input[@id='height'] and "
+            ".//input[@id='weight'] and .//input[@id='bidPrice'] and "
+            ".//input[@id='stock']][1]",
+            timeout=0,
+        )
+        candidates = [candidate for candidate in candidates if _has_layout(candidate)]
+        if len(candidates) != 1:
+            return None
+        return candidates[0]
+
+    def _require_sku_batch_root(self) -> Any:
+        root = self._sku_batch_root()
+        if root is None:
+            raise AutomationError("销售规格容器未找到")
+        return root
+
+    def _reset_sku_batch_table_view(self, root: Any) -> None:
+        # 固定列会复制一份滚动容器；两个克隆都要清零，才能让关键列和可编辑输入框
+        # 在任意滚动位置之后同时出现。
+        try:
+            root.run_js(
+                """
+                Array.from(this.querySelectorAll(
+                    '.el-table__body-wrapper, .el-table__fixed-body-wrapper'
+                )).forEach((wrapper) => {
+                    wrapper.scrollTop = 0;
+                    wrapper.scrollLeft = 0;
+                });
+                """
+            )
+        except Exception as error:
+            raise AutomationError("无法重置销售规格表格视图") from error
+
+    def _sku_batch_input(self, root: Any, field_id: str) -> Any:
+        literal = _xpath_literal(field_id)
+        return self._find_visible(
+            f".//input[@id={literal}]",
+            f"销售规格批量字段：{field_id}",
+            scope=root,
+        )
+
+    def _sku_batch_select(self, root: Any, field_id: str) -> Any:
+        literal = _xpath_literal(field_id)
+        selects = self._visible_elements(
+            ".//div[contains(concat(' ',normalize-space(@class),' '),' ant-select ')]"
+            f"[.//input[@id={literal}]]",
+            scope=root,
+        )
+        if len(selects) != 1:
+            raise AutomationError(
+                f"销售规格批量下拉框数量异常：{field_id}={len(selects)}"
+            )
+        return selects[0]
+
+    def _set_sku_batch_input(self, root: Any, field_id: str, value: str) -> None:
+        self._input_value(self._sku_batch_input(root, field_id), value)
+        self._wait_until(
+            lambda: _element_value(self._sku_batch_input(root, field_id)) == value,
+            message=f"销售规格批量字段没有回显：{field_id}",
+        )
+
+    def _sku_batch_select_value(self, root: Any, field_id: str) -> str:
+        select = self._sku_batch_select(root, field_id)
+        try:
+            item = select.ele(
+                "xpath:.//span[contains(@class,'ant-select-selection-item')]",
+                timeout=0,
+            )
+            if item is None:
+                return ""
+            return str(item.attr("title") or item.text or "").strip()
+        except Exception:
+            # With raise_when_ele_not_found enabled, DrissionPage returns a
+            # NoneElement proxy whose attr/text access raises instead; an
+            # unselected batch field is still a valid starting state.
+            return ""
+
+    def _set_sku_batch_select(self, root: Any, field_id: str, value: str) -> None:
+        if self._sku_batch_select_value(root, field_id) == value:
+            return
+        select = self._sku_batch_select(root, field_id)
+        # Ant Design Select opens its popup from a real pointer event; a JS
+        # click on the wrapper does not mount the option list in this page.
+        self._click(select)
+        literal = _xpath_literal(value)
+
+        def locate_option() -> Any | None:
+            # Ant Design 的弹层有时在过渡阶段位于 (-9999, -9999)，但仍保留
+            # 当前控件对应的 aria-controls 列表。按 listbox id 限定后直接读取
+            # DOM 节点，不能再用“可见/有尺寸”过滤，否则合法选项会被误判不存在。
+            list_id = f"{field_id}_list"
+            options = self._scoped_elements(
+                self.tab,
+                "xpath://div[contains(@class,'ant-select-dropdown')]"
+                f"[.//div[@id={_xpath_literal(list_id)}]]"
+                "//*[contains(concat(' ',normalize-space(@class),' '),' ant-select-item-option ')]"
+                f"[@title={literal} or normalize-space(.)={literal} "
+                f"or .//*[normalize-space(.)={literal}]]",
+                timeout=0,
+            )
+            if len(options) > 1:
+                raise AutomationError(
+                    f"销售规格批量下拉选项不唯一：{field_id}={value}（{len(options)}）"
+                )
+            return options[0] if options else None
+
+        option = self._wait_until(
+            locate_option,
+            timeout=5,
+            message=f"销售规格批量下拉没有选项：{field_id}={value}",
+        )
+        # 选项可能仍在屏幕外的虚拟列表中；跳过滚动，仅触发原生 DOM click。
+        self._click_option(option, value, dom_only=True, scroll=False)
+        self._wait_until(
+            lambda: self._sku_batch_select_value(root, field_id) == value,
+            message=f"销售规格批量下拉没有回显：{field_id}={value}",
+        )
+
+    def _sku_batch_rows_match(
+        self,
+        expected: set[tuple[str, str]],
+        values: Mapping[str, str],
+    ) -> bool:
+        parts = self._sku_batch_row_parts()
+        if not parts or len(parts) > len(expected):
+            return False
+        seen: set[tuple[str, str]] = set()
+        expected_row_values = (
+            values["biddingCode"],
+            values["bidPrice"],
+            values["stock"],
+            values["length"],
+            values["width"],
+            values["height"],
+            values["weight"],
+        )
+        for row, cells, inputs in parts:
+            key = (cells[0].text.strip(), cells[1].text.strip())
+            if key not in expected or key in seen or len(inputs) < 9:
+                return False
+            seen.add(key)
+            actual_values = (
+                _element_value(inputs[2]),
+                _element_value(inputs[3]),
+                _element_value(inputs[4]),
+                _element_value(inputs[5]),
+                _element_value(inputs[6]),
+                _element_value(inputs[7]),
+                _element_value(inputs[8]),
+            )
+            for index, (actual, expected_value) in enumerate(
+                zip(actual_values, expected_row_values)
+            ):
+                if index == 0:
+                    if actual != expected_value:
+                        return False
+                    continue
+                try:
+                    if Decimal(actual) != Decimal(expected_value):
+                        return False
+                except (ArithmeticError, ValueError):
+                    return False
+        # “是否上架”是表格的独立固定列，页面版本不同可能把开关放在
+        # 普通数据行、固定列克隆行，或两处同时渲染。只在开关数量能和
+        # 当前页数据一一对应时校验；不能因为固定列 DOM 结构差异误判批量回显。
+        root = self._require_sku_batch_root()
+        switches = self._visible_elements(
+            ".//*[@role='switch']",
+            scope=root,
+            timeout=0,
+        )
+        if len(switches) == len(parts) and any(
+            str(switch.attr("aria-checked") or "").casefold() != "true"
+            for switch in switches
+        ):
+            return False
+        next_button = self._next_page_button()
+        if next_button is not None and not _is_disabled(next_button):
+            return bool(seen)
+        return seen == expected
+
+    def _fill_sku_batch_codes(self, expected: set[tuple[str, str]]) -> None:
+        self._go_to_first_sku_page()
+        processed: set[tuple[str, str]] = set()
+        page_signatures: set[str] = set()
+
+        while True:
+            parts = self._sku_batch_row_parts()
+            if not parts:
+                raise AutomationError("销售规格当前分页没有可填写的 SKU 行")
+            signature = "|".join(
+                f"{cells[0].text.strip()}/{cells[1].text.strip()}"
+                for _row, cells, _inputs in parts
+            )
+            if signature in page_signatures:
+                raise AutomationError("销售规格分页没有变化，停止以避免重复填写")
+            page_signatures.add(signature)
+
+            for row, cells, inputs in parts:
+                key = (cells[0].text.strip(), cells[1].text.strip())
+                sku = self.product.sku_by_variant.get(key)
+                if sku is None or key in processed:
+                    raise AutomationError(f"销售规格行无法匹配来源：{key}")
+                if len(inputs) < 9:
+                    raise AutomationError(f"销售规格行输入框数量异常：{key}")
+                values = (
+                    str(sku.product_code),
+                    str(sku.auxiliary_code),
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                )
+                self._set_sku_text_inputs(row, inputs, values)
+                processed.add(key)
+
+            next_button = self._next_page_button()
+            if next_button is None or _is_disabled(next_button):
+                break
+            old_signature = signature
+            self._click(next_button)
+            self._wait_until(
+                lambda old_signature=old_signature: "|".join(
+                    f"{cells[0].text.strip()}/{cells[1].text.strip()}"
+                    for _row, cells, _inputs in self._sku_batch_row_parts()
+                )
+                != old_signature,
+                message="销售规格分页切换失败",
+            )
+
+        missing = expected - processed
+        extra = processed - expected
+        if missing or extra:
+            raise AutomationError(
+                f"销售规格商品编码校验失败：缺少={sorted(missing)}，多出={sorted(extra)}"
+            )
+
+    def _sku_batch_codes_match(
+        self,
+        expected: set[tuple[str, str]],
+    ) -> bool:
+        parts = self._sku_batch_row_parts()
+        if len(parts) != len(expected):
+            return False
+        seen: set[tuple[str, str]] = set()
+        for _row, cells, inputs in parts:
+            key = (cells[0].text.strip(), cells[1].text.strip())
+            sku = self.product.sku_by_variant.get(key)
+            if sku is None or key in seen or len(inputs) < 2:
+                return False
+            if _element_value(inputs[0]) != str(sku.product_code):
+                return False
+            if _element_value(inputs[1]) != str(sku.auxiliary_code):
+                return False
+            seen.add(key)
+        return seen == expected
+
+    def _sku_batch_row_parts(self) -> list[tuple[Any, list[Any], list[Any]]]:
+        """Pair the fixed key columns with the editable body rows."""
+        root = self._require_sku_batch_root()
+        try:
+            rows = root.eles(
+                "xpath:.//tr[contains(@class,'el-table__row')]",
+                timeout=ELEMENT_QUERY_TIMEOUT,
+            )
+        except TypeError:
+            rows = root.eles("xpath:.//tr[contains(@class,'el-table__row')]")
+
+        direct_rows: list[tuple[Any, list[Any], list[Any]]] = []
+        editable_rows: list[tuple[Any, list[Any]]] = []
+        key_rows: list[tuple[str, str]] = []
+        for row in rows:
+            if not _is_displayed(row):
+                continue
+            cells = row.eles("xpath:./td", timeout=0)
+            if len(cells) < 2:
+                continue
+            first_class = str(cells[0].attr("class") or "")
+            inputs = [
+                item
+                for item in row.eles("xpath:.//input", timeout=0)
+                if _is_displayed(item)
+            ]
+            if "is-hidden" in first_class:
+                if len(inputs) >= 9:
+                    editable_rows.append((row, inputs))
+                continue
+            color = cells[0].text.strip()
+            size = cells[1].text.strip()
+            if color or size:
+                key_rows.append((color, size))
+                # 当前页面版本的普通表格行同时包含规格键和全部可编辑列，
+                # 直接复用这一行比依赖固定列克隆更可靠。
+                if len(inputs) >= 9:
+                    direct_rows.append((row, cells, inputs))
+
+        if direct_rows and len(direct_rows) == len(key_rows):
+            return direct_rows
+
+        if len(editable_rows) != len(key_rows):
+            return []
+        parts: list[tuple[Any, list[Any], list[Any]]] = []
+        for (row, inputs), key in zip(editable_rows, key_rows):
+            # Reuse lightweight fake cells for the key pair so callers can keep
+            # the same `(row, cells, inputs)` contract as the paginated path.
+            cells = [_SkuBatchCell(key[0]), _SkuBatchCell(key[1])]
+            parts.append((row, cells, inputs))
+        return parts
+
+    def _fill_sku_row(
+        self,
+        row: Any,
+        sku: SkuData,
+        *,
+        inputs: Sequence[Any] | None = None,
+    ) -> None:
         # 一行 SKU 的前五个输入框分别是编码、辅助编码、出价类型、出价和库存，
         # 后四个输入框是包装长宽高和重量；具体列顺序依赖页面固定结构。
-        inputs = [item for item in row.eles("xpath:.//input") if _is_displayed(item)]
+        cached_inputs = inputs is not None
+        if inputs is None:
+            inputs = [
+                item for item in row.eles("xpath:.//input") if _is_displayed(item)
+            ]
+        else:
+            # _sku_row_parts() 的缓存只跨当前页填写；节点被 Vue 重绘后按不可见处理，
+            # 让本行安全失败而不是把失效控件交给“直发”选择逻辑。
+            inputs = [item for item in inputs if _is_displayed(item)]
+        if len(inputs) < 9 and cached_inputs:
+            # Vue 可能在上一行更新后替换整张表；仅在缓存节点失效时按规格重新定位。
+            row, inputs = self._sku_row_for_variant(sku.color, sku.size)
         if len(inputs) < 9:
             raise AutomationError(
                 f"SKU {sku.color}/{sku.size} 输入框数量异常：期望至少 9，实际 {len(inputs)}"
             )
+        # 先确认出价控件，再写入其余字段，避免在结构异常时留下半行数据。
+        offer_input = self._sku_offer_input(inputs)
 
         package_values = (
             self.settings.package_defaults.get("length_cm"),
@@ -1293,14 +1850,70 @@ class DewuAutomation:
             *(str(value) if value not in (None, "") else None for value in package_values),
         )
         self._set_sku_text_inputs(row, inputs, text_values)
+        if not _is_displayed(offer_input):
+            # Vue 可能在 input/change 事件后替换整行节点；只在重新定位成功时继续。
+            row, fresh_inputs = self._sku_row_for_variant(sku.color, sku.size)
+            offer_input = self._sku_offer_input(fresh_inputs)
         # Windows 缩放时出价类型输入框和“下架”操作可能发生命中区域重叠；
         # 该控件及其选项只允许 DOM 点击，失败就中止而不冒险使用坐标点击。
         self._select_from_input(
-            inputs[2],
+            offer_input,
             self.settings.offer_type,
             required=True,
             dom_only=True,
         )
+
+    def _sku_offer_input(self, inputs: Sequence[Any]) -> Any:
+        """Return the one input backed by the SKU offer-type select."""
+        select_inputs: list[Any] = []
+        for item in inputs[:5]:
+            try:
+                select = item.ele(
+                    "xpath:./ancestor::*[contains(concat(' ',normalize-space(@class),' '),' el-select ')][1]",
+                    timeout=0,
+                )
+            except Exception:
+                select = None
+            if select is not None:
+                select_inputs.append(item)
+        if len(select_inputs) == 1:
+            return select_inputs[0]
+
+        # 旧版元素包装器没有 ancestor 查询能力，只能保留原列序约定；
+        # DrissionPage 元素具备 ele()，不会走这个兼容分支。
+        if not select_inputs and len(inputs) >= 3 and not hasattr(inputs[2], "ele"):
+            return inputs[2]
+
+        # 某些页面版本省略 el-select 的 class，但仍保留 readonly 输入语义。
+        readonly_inputs = [
+            item
+            for item in inputs[:5]
+            if item.attr("readonly") is not None
+        ]
+        if len(readonly_inputs) == 1:
+            return readonly_inputs[0]
+        raise AutomationError(
+            f"无法唯一定位 SKU 出价类型控件：下拉候选 {len(select_inputs)} 个，"
+            f"readonly 候选 {len(readonly_inputs)} 个；已停止以避免误触下架"
+        )
+
+    def _sku_row_for_variant(
+        self,
+        color: str,
+        size: str,
+    ) -> tuple[Any, list[Any]]:
+        matches = [
+            (row, inputs)
+            for row, cells, inputs in self._sku_row_parts()
+            if len(cells) >= 2
+            and cells[0].text.strip() == color
+            and cells[1].text.strip() == size
+        ]
+        if len(matches) != 1:
+            raise AutomationError(
+                f"无法重新定位 SKU 行：{color}/{size}，匹配数量 {len(matches)}"
+            )
+        return matches[0]
 
     def _set_sku_text_inputs(
         self,
@@ -1718,7 +2331,28 @@ class DewuAutomation:
             input_element.input(value, clear=True)
         from DrissionPage.common import Keys
 
-        option = self._wait_for_option(value, timeout=5 if required else 1)
+        option_scope = None
+        if dom_only:
+            try:
+                option_scope = input_element.ele(
+                    "xpath:./ancestor::*[contains(concat(' ',normalize-space(@class),' '),' el-select ')][1]",
+                    timeout=0,
+                )
+            except Exception:
+                option_scope = None
+            if option_scope is None:
+                raise AutomationError(
+                    "无法确认 SKU 出价类型下拉作用域，已停止以避免误触下架"
+                )
+        option_timeout = 5 if required else 1
+        if option_scope is None:
+            option = self._wait_for_option(value, timeout=option_timeout)
+        else:
+            option = self._wait_for_option(
+                value,
+                timeout=option_timeout,
+                scope=option_scope,
+            )
         if option is None:
             # 选项不存在时也要收起当前多选下拉，避免遮挡后续属性控件。
             input_element.input(Keys.ESCAPE, clear=False)
@@ -1742,13 +2376,23 @@ class DewuAutomation:
         input_element.input(Keys.ESCAPE, clear=False)
         return True
 
-    def _dom_click(self, element: Any, description: str) -> None:
+    def _dom_click(self, element: Any, description: str, *, scroll: bool = True) -> None:
         try:
+            # DOM click 不受缩放命中区域影响，但仍需让 Element UI 计算 popper 布局。
+            if scroll:
+                self._scroll(element)
             element.run_js("this.click();")
         except Exception as error:
             raise AutomationError(f"无法安全点击{description}，已停止") from error
 
-    def _click_option(self, option: Any, value: str, *, dom_only: bool = False) -> None:
+    def _click_option(
+        self,
+        option: Any,
+        value: str,
+        *,
+        dom_only: bool = False,
+        scroll: bool = True,
+    ) -> None:
         # DOM click 不经过屏幕坐标命中测试，避免 Windows 缩放时误触相邻的“下架”。
         option_text = re.sub(
             r"\s+", " ", str(getattr(option, "text", "") or "")
@@ -1758,7 +2402,7 @@ class DewuAutomation:
                 f"下拉选项文本不匹配：期望“{value}”，实际“{option_text}”"
             )
         if dom_only or value == "直发":
-            self._dom_click(option, f"下拉选项“{value}”")
+            self._dom_click(option, f"下拉选项“{value}”", scroll=scroll)
             return
         try:
             option.run_js("this.click();")
@@ -1865,25 +2509,29 @@ class DewuAutomation:
         )
         return self._find_visible(xpath, f"表单字段：{label}")
 
-    def _wait_for_option(self, value: str, timeout: float) -> Any | None:
+    def _wait_for_option(
+        self,
+        value: str,
+        timeout: float,
+        *,
+        scope: Any | None = None,
+    ) -> Any | None:
         # 下拉选项由页面异步渲染，按两种已知选项结构轮询查找。
         literal = _xpath_literal(value)
 
-        def locate() -> Any | None:
-            options = [
-                item
-                for item in self._scoped_elements(
-                    self.tab,
-                    "xpath://li[contains(@class,'select-dropdown__item')]"
-                    f"[normalize-space(.)={literal} or .//*[normalize-space(.)={literal}]]"
-                    " | //div[contains(@class,'select-item-option')]"
-                    f"[normalize-space(.)={literal} or .//*[normalize-space(.)={literal}]]",
-                    timeout=0,
-                )
-                if _is_displayed(item)
-            ]
-            # 页面会保留 display:none 的下拉模板，DrissionPage 仍可能把它标记为 displayed；
-            # 只有有实际布局尺寸的候选才是当前打开的选项。
+        def collect(owner: Any) -> list[Any]:
+            options = self._scoped_elements(
+                owner,
+                "xpath://li[contains(@class,'select-dropdown__item')]"
+                f"[normalize-space(.)={literal} or .//*[normalize-space(.)={literal}]]"
+                " | //div[contains(@class,'select-item-option')]"
+                f"[normalize-space(.)={literal} or .//*[normalize-space(.)={literal}]]",
+                timeout=0,
+            )
+            return [item for item in options if _is_displayed(item)]
+
+        def layout_options(options: Sequence[Any]) -> list[Any]:
+            visible: list[Any] = []
             for option in options:
                 try:
                     has_layout = option.run_js(
@@ -1894,15 +2542,30 @@ class DewuAutomation:
                             && this.getClientRects().length > 0;
                         """
                     )
-                    if has_layout:
-                        return option
                 except Exception:
                     try:
                         width, height = option.rect.size
                     except Exception:
                         continue
-                    if width > 0 and height > 0:
-                        return option
+                    has_layout = width > 0 and height > 0
+                if has_layout:
+                    visible.append(option)
+            return visible
+
+        def locate() -> Any | None:
+            options = collect(scope if scope is not None else self.tab)
+            if scope is not None and not options:
+                # Element UI 通常把选项挂在当前 .el-select 下；如果某版本传送到 body，
+                # 只有全页面恰好一个同名可见选项时才允许继续，多个候选直接失败。
+                fallback = layout_options(collect(self.tab))
+                if len(fallback) != 1:
+                    return None
+                return fallback[0]
+            # 页面会保留 display:none 的下拉模板，DrissionPage 仍可能把它标记为 displayed；
+            # 只有有实际布局尺寸的候选才是当前打开的选项。
+            layouted = layout_options(options)
+            if layouted:
+                return layouted[0]
             return None
 
         try:
@@ -2214,11 +2877,19 @@ class DewuAutomation:
 
     def _sku_rows(self) -> list[Any]:
         # 通过至少 9 个输入框过滤出真正的 SKU 行，排除表头、隐藏行和其他表格行。
+        return [row for row, _cells, _inputs in self._sku_row_parts()]
+
+    def _sku_row_parts(self) -> list[tuple[Any, list[Any], list[Any]]]:
+        # 同时收集单元格和输入框；填写当前页时复用，避免重复往返浏览器 DOM。
         rows = self._visible_elements("//main//tr[contains(@class,'el-table__row')]")
-        result: list[Any] = []
+        result: list[tuple[Any, list[Any], list[Any]]] = []
         for row in rows:
             cells = row.eles("xpath:./td")
-            inputs = row.eles("xpath:.//input")
+            inputs = [
+                item
+                for item in row.eles("xpath:.//input")
+                if _is_displayed(item)
+            ]
             if len(cells) < 2 or len(inputs) < 9:
                 continue
             first_class = str(cells[0].attr("class") or "")
@@ -2227,7 +2898,7 @@ class DewuAutomation:
             color = cells[0].text.strip()
             size = cells[1].text.strip()
             if color or size:
-                result.append(row)
+                result.append((row, cells, inputs))
         return result
 
     def _sku_pagination(self) -> Any:
@@ -2331,7 +3002,7 @@ class DewuAutomation:
         scope: Any | None = None,
     ) -> Any:
         # 大多数页面操作都必须作用于可见元素；找不到时统一抛出带业务描述的错误。
-        elements = self._visible_elements(xpath, scope=scope)
+        elements = self._visible_elements(xpath, scope=scope, timeout=1)
         if not elements:
             raise AutomationError(f"找不到{description}")
         return elements[0]
@@ -2354,12 +3025,18 @@ class DewuAutomation:
             raise AutomationError(f"找不到{description}")
         return elements[0]
 
-    def _visible_elements(self, xpath: str, *, scope: Any | None = None) -> list[Any]:
+    def _visible_elements(
+        self,
+        xpath: str,
+        *,
+        scope: Any | None = None,
+        timeout: float = ELEMENT_QUERY_TIMEOUT,
+    ) -> list[Any]:
         # scope 用于把查找限制在当前表单项/弹窗/图片区，避免全页面同名元素相互干扰。
         locator = xpath if xpath.startswith("xpath:") else f"xpath:{xpath}"
         owner = scope or self.tab
         try:
-            elements = owner.eles(locator, timeout=1)
+            elements = owner.eles(locator, timeout=timeout)
         except TypeError:
             elements = owner.eles(locator)
         return [element for element in elements if _is_displayed(element)]
@@ -2397,7 +3074,9 @@ class DewuAutomation:
         message: str = "等待页面状态变化超时",
     ) -> Any:
         # 页面操作大量依赖异步渲染，因此统一采用短间隔轮询，并保留最后一次异常用于诊断。
-        deadline = time.monotonic() + (timeout or self.settings.timeout)
+        deadline = time.monotonic() + (
+            timeout if timeout is not None else self.settings.timeout
+        )
         last_error: Exception | None = None
         while time.monotonic() < deadline:
             try:
@@ -2406,7 +3085,9 @@ class DewuAutomation:
                     return value
             except Exception as error:
                 last_error = error
-            time.sleep(WAIT_POLL_INTERVAL)
+            remaining = deadline - time.monotonic()
+            if remaining > 0:
+                time.sleep(min(WAIT_POLL_INTERVAL, remaining))
         if last_error:
             raise AutomationError(f"{message}：{last_error}") from last_error
         raise AutomationError(message)

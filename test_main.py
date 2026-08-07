@@ -367,6 +367,43 @@ class WorkflowOrderTests(unittest.TestCase):
         self.assertEqual(automation.result.validation_errors, ["销售规格 填写有误"])
 
 
+class TitleInitializationTests(unittest.TestCase):
+    def test_new_detail_reloads_once_when_title_service_is_not_ready(self) -> None:
+        automation = object.__new__(main.DewuAutomation)
+        automation.product = SimpleNamespace(
+            brand="pcgocollection",
+            title=SimpleNamespace(
+                selling_point="休闲宽松舒适百搭",
+                category="卫衣",
+                audience="男女同款",
+            ),
+        )
+        automation.result = main.RunResult(completed_sections=["new_product_start"])
+        automation.settings = SimpleNamespace(timeout=1)
+        title_states = [None, (object(), object())]
+        reloads: list[bool] = []
+        automation._wait_for_structured_title_inputs = lambda: title_states.pop(0)
+        automation._reload_title_page = lambda: reloads.append(True)
+        automation._fill_placeholder = lambda *_args: None
+
+        automation._fill_title()
+
+        self.assertEqual(reloads, [True])
+
+    def test_existing_detail_does_not_reload_an_unresolved_title(self) -> None:
+        automation = object.__new__(main.DewuAutomation)
+        automation.result = main.RunResult()
+        automation._wait_for_structured_title_inputs = lambda: None
+        automation._title_page_state = lambda: "普通标题，标题内容为空"
+        reloads: list[bool] = []
+        automation._reload_title_page = lambda: reloads.append(True)
+
+        with self.assertRaisesRegex(main.AutomationError, "普通标题"):
+            automation._fill_title()
+
+        self.assertEqual(reloads, [])
+
+
 class SaveResultTests(unittest.TestCase):
     def test_result_page_feedback_is_recognized_as_draft_save(self) -> None:
         self.assertTrue(
@@ -568,6 +605,278 @@ class SkuInputOptimizationTests(unittest.TestCase):
 
         self.assertEqual(row.calls, 1)
         self.assertEqual(fallback, [])
+
+    def test_offer_input_is_selected_by_dropdown_container(self) -> None:
+        class Input(_FocusRequiredInput):
+            def __init__(self, *, select: bool = False, readonly: bool = False) -> None:
+                super().__init__()
+                self.select = select
+                self.readonly = readonly
+
+            def ele(self, _locator: str, **_kwargs: object) -> object | None:
+                return object() if self.select else None
+
+            def attr(self, name: str) -> str | None:
+                if name == "readonly" and self.readonly:
+                    return "readonly"
+                return super().attr(name)
+
+        inputs = [Input() for _ in range(9)]
+        inputs[2] = Input(select=True)
+        automation = object.__new__(main.DewuAutomation)
+
+        self.assertIs(automation._sku_offer_input(inputs), inputs[2])
+
+    def test_offer_input_ambiguity_stops_before_clicking(self) -> None:
+        class Input(_FocusRequiredInput):
+            def ele(self, _locator: str, **_kwargs: object) -> object:
+                return object()
+
+        automation = object.__new__(main.DewuAutomation)
+        with self.assertRaises(main.AutomationError):
+            automation._sku_offer_input([Input() for _ in range(9)])
+
+    def test_sku_batch_values_require_common_offer_and_inventory(self) -> None:
+        sku = SimpleNamespace(offer_amount=Decimal("399"), inventory=1000)
+        automation = object.__new__(main.DewuAutomation)
+        automation.product = SimpleNamespace(skus=[sku])
+        automation.settings = SimpleNamespace(
+            package_defaults=main.PACKAGE_DEFAULTS,
+            offer_type="直发",
+        )
+
+        self.assertEqual(
+            automation._sku_batch_values(),
+            {
+                "length": "42",
+                "width": "38",
+                "height": "5",
+                "weight": "0.8",
+                "biddingCode": "直发",
+                "bidPrice": "399",
+                "stock": "1000",
+                "status": "上架",
+            },
+        )
+
+        automation.product.skus = [
+            sku,
+            SimpleNamespace(offer_amount=Decimal("400"), inventory=1000),
+        ]
+        with self.assertRaises(main.AutomationError):
+            automation._sku_batch_values()
+
+    def test_sku_batch_failure_does_not_use_rowwise_fallback(self) -> None:
+        automation = object.__new__(main.DewuAutomation)
+        automation.result = SimpleNamespace(warnings=[])
+        fallback_calls: list[bool] = []
+
+        def fail_batch() -> bool:
+            raise main.AutomationError("批量控件不可用")
+
+        automation._fill_skus_batch = fail_batch
+        automation._fill_skus_rowwise = lambda: fallback_calls.append(True)
+
+        with self.assertRaisesRegex(main.AutomationError, "批量控件不可用"):
+            automation._fill_skus()
+
+        self.assertEqual(fallback_calls, [])
+
+    def test_sku_batch_success_does_not_call_rowwise_fallback(self) -> None:
+        automation = object.__new__(main.DewuAutomation)
+        automation.result = SimpleNamespace(warnings=[])
+        fallback_calls: list[bool] = []
+        automation._fill_skus_batch = lambda: True
+        automation._fill_skus_rowwise = lambda: fallback_calls.append(True)
+
+        automation._fill_skus()
+
+        self.assertEqual(fallback_calls, [])
+        self.assertEqual(automation.result.warnings, [])
+
+
+class LookupOptimizationTests(unittest.TestCase):
+    def test_visible_lookup_uses_short_default_and_single_find_keeps_one_second(self) -> None:
+        class Owner:
+            def __init__(self) -> None:
+                self.timeouts: list[float] = []
+
+            def eles(self, _locator: str, *, timeout: float) -> list[object]:
+                self.timeouts.append(timeout)
+                return []
+
+        owner = Owner()
+        automation = object.__new__(main.DewuAutomation)
+        automation.tab = owner
+
+        self.assertEqual(automation._visible_elements("//nothing"), [])
+        self.assertEqual(owner.timeouts, [main.ELEMENT_QUERY_TIMEOUT])
+        with self.assertRaises(main.AutomationError):
+            automation._find_visible("//nothing", "字段")
+        self.assertEqual(owner.timeouts[-1], 1)
+
+    def test_scoped_option_lookup_rejects_ambiguous_global_fallback(self) -> None:
+        class Option:
+            text = "直发"
+            states = SimpleNamespace(is_displayed=True)
+            rect = SimpleNamespace(size=(20, 20))
+
+            def run_js(self, _script: str) -> bool:
+                return True
+
+        class Owner:
+            def __init__(self, options: list[Option]) -> None:
+                self.options = options
+
+            def eles(self, _locator: str, *, timeout: float) -> list[Option]:
+                return self.options
+
+        automation = object.__new__(main.DewuAutomation)
+        automation.tab = Owner([Option(), Option()])
+        automation._wait_until = lambda predicate, **_kwargs: predicate()
+
+        self.assertIsNone(
+            automation._wait_for_option("直发", timeout=1, scope=Owner([]))
+        )
+
+    def test_empty_sku_batch_select_is_treated_as_unselected(self) -> None:
+        class Select:
+            def ele(self, _locator: str, **_kwargs: object) -> object:
+                class NoneElement:
+                    def attr(self, _name: str) -> str:
+                        raise RuntimeError("ElementNotFoundError")
+
+                    @property
+                    def text(self) -> str:
+                        raise RuntimeError("ElementNotFoundError")
+
+                return NoneElement()
+
+        automation = object.__new__(main.DewuAutomation)
+        automation._sku_batch_select = lambda _root, _field_id: Select()
+
+        self.assertEqual(
+            automation._sku_batch_select_value(object(), "biddingCode"),
+            "",
+        )
+
+    def test_virtualized_sku_batch_option_is_accepted_without_layout(self) -> None:
+        class Option:
+            text = "直发"
+            states = SimpleNamespace(is_displayed=True)
+
+            def run_js(self, _script: str) -> None:
+                return None
+
+        class Select:
+            pass
+
+        state = {"value": ""}
+        option = Option()
+        automation = object.__new__(main.DewuAutomation)
+        automation.tab = object()
+        automation._sku_batch_select = lambda _root, _field_id: Select()
+        automation._sku_batch_select_value = lambda _root, _field_id: state["value"]
+        automation._scoped_elements = lambda _owner, _xpath, **_kwargs: [option]
+        automation._wait_until = lambda predicate, **_kwargs: predicate()
+        opened: list[bool] = []
+        clicks: list[bool] = []
+
+        automation._click = lambda _element: opened.append(True)
+
+        def dom_click(_element: object, _description: str, *, scroll: bool = True) -> None:
+            clicks.append(scroll)
+            state["value"] = "直发"
+
+        automation._dom_click = dom_click
+
+        automation._set_sku_batch_select(object(), "biddingCode", "直发")
+
+        self.assertEqual(state["value"], "直发")
+        self.assertEqual(opened, [True])
+        self.assertEqual(clicks[-1], False)
+
+    def test_sku_batch_uses_regular_rows_when_they_expose_all_inputs(self) -> None:
+        class Cell:
+            def __init__(self, text: str, class_name: str = "") -> None:
+                self.text = text
+                self.class_name = class_name
+
+            def attr(self, name: str) -> str:
+                return self.class_name if name == "class" else ""
+
+        class Input:
+            states = SimpleNamespace(is_displayed=True)
+
+        inputs = [Input() for _ in range(9)]
+
+        class Row:
+            states = SimpleNamespace(is_displayed=True)
+
+            def eles(self, locator: str, **_kwargs: object) -> list[object]:
+                if "./td" in locator:
+                    return [Cell("白色"), Cell("M")]
+                return inputs
+
+        class Root:
+            def eles(self, _locator: str, **_kwargs: object) -> list[Row]:
+                return [row]
+
+        row = Row()
+        automation = object.__new__(main.DewuAutomation)
+        automation._require_sku_batch_root = lambda: Root()
+
+        parts = automation._sku_batch_row_parts()
+
+        self.assertEqual(len(parts), 1)
+        self.assertIs(parts[0][0], row)
+        self.assertEqual(len(parts[0][2]), 9)
+
+    def test_sku_batch_validation_allows_status_switches_in_fixed_column(self) -> None:
+        class Input:
+            states = SimpleNamespace(is_displayed=True)
+
+            def __init__(self, value: str) -> None:
+                self.value = value
+
+            def property(self, name: str) -> str:
+                return self.value if name == "value" else ""
+
+        class Cell:
+            def __init__(self, text: str) -> None:
+                self.text = text
+
+        class Row:
+            # The real page keeps the listing switch in a separate fixed-column row.
+            def eles(self, _locator: str, **_kwargs: object) -> list[object]:
+                return []
+
+        row = Row()
+        inputs = [Input(value) for value in (
+            "SKU-1", "AUX-1", "直发", "399", "1000", "42", "38", "5", "0.8"
+        )]
+        automation = object.__new__(main.DewuAutomation)
+        automation._sku_batch_row_parts = lambda: [
+            (row, [Cell("白色"), Cell("M")], inputs)
+        ]
+        automation._require_sku_batch_root = lambda: object()
+        automation._visible_elements = lambda *_args, **_kwargs: []
+        automation._next_page_button = lambda: None
+
+        self.assertTrue(
+            automation._sku_batch_rows_match(
+                {("白色", "M")},
+                {
+                    "biddingCode": "直发",
+                    "bidPrice": "399",
+                    "stock": "1000",
+                    "length": "42",
+                    "width": "38",
+                    "height": "5",
+                    "weight": "0.8",
+                },
+            )
+        )
 
 
 class _FakeRect:

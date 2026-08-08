@@ -208,10 +208,9 @@ class MediaFiles:
 
     由 extract_and_resolve_media() 产出，把 MediaReferences 的引用解析为
     磁盘上唯一存在的文件。区块与页面用途的对应：
-        - carousel_by_color：每个颜色至少正、背两张“得物平铺图”，第一张
-          作为穿搭效果，第二张作为商品展示（fronts / backs）；
-        - product_display_backs：商品展示区，来自各颜色的第二张平铺图；
-        - outfit_fronts：穿搭效果区，来自各颜色的第一张平铺图；
+        - carousel_by_color：每个颜色按来源顺序保留 0/1/2/3+ 张“得物平铺图”；
+        - product_display_backs：商品展示区，来自各颜色的第二张平铺图（有第二张时）；
+        - outfit_fronts：穿搭效果区，来自各颜色的第一张和第三张及以后平铺图；
         - details：细节呈现区，来自 detailImagePaths；
         - main / first_square / first_long：方图、第一张方图、第一张长图，
           其中 first_square[0] 用于起始页上传。
@@ -357,19 +356,19 @@ def extract_and_resolve_media(
     backs: list[Path] = []
     warnings: list[str] = []
     for color in product.colors:
-        # 每个颜色至少需要正面和背面两张平铺图；第一张用于穿搭效果，第二张用于商品展示。
+        # 图片数组顺序就是业务分类：第 1 张正面，第 2 张背面，第 3 张及以后模特图。
         color_refs = refs.carousel_by_color.get(color, ())
-        if not color_refs:
-            raise ProductDataError(f"颜色“{color}”没有得物平铺图")
         files = tuple(
             _resolve_reference(extraction_root, ref, "颜色图_得物平铺图")
             for ref in color_refs
         )
-        if len(files) < 2:
-            raise ProductDataError(f"颜色“{color}”必须至少有正面、背面两张平铺图")
         carousel_by_color[color] = files
-        fronts.append(files[0])
-        backs.append(files[1])
+        if files:
+            fronts.append(files[0])
+        if len(files) >= 2:
+            backs.append(files[1])
+        if len(files) >= 3:
+            fronts.extend(files[2:])
 
     if not details:
         warnings.append("来源 JSON 和 ZIP 均没有详情图，运行时将跳过“细节呈现”")
@@ -815,14 +814,23 @@ def _decimal(value: Any, field: str) -> Decimal:
 
 def _build_media_references(image_set: Mapping[str, Any]) -> MediaReferences:
     # 只做字段形状归一化，不在这里访问磁盘；文件是否存在由后续解压解析阶段判断。
-    carousel_raw = image_set.get("colorDewuPaths") or {}
+    carousel_raw = image_set.get("colorDewuPaths")
+    if carousel_raw is None or carousel_raw == "":
+        carousel_raw = {}
+    elif (
+        isinstance(carousel_raw, Sequence)
+        and not isinstance(carousel_raw, (str, bytes))
+        and not carousel_raw
+    ):
+        carousel_raw = {}
     if not isinstance(carousel_raw, Mapping):
         raise ProductDataError("colorDewuPaths 必须是颜色到图片数组的对象")
-    carousel = {
-        str(color).strip(): _string_tuple(paths)
-        for color, paths in carousel_raw.items()
-        if str(color).strip()
-    }
+    carousel: dict[str, tuple[str, ...]] = {}
+    for raw_color, paths in carousel_raw.items():
+        color = str(raw_color).strip()
+        if not color:
+            raise ProductDataError("colorDewuPaths 包含空颜色")
+        carousel[color] = _string_tuple(paths)
     return MediaReferences(
         main=_string_tuple(image_set.get("mainImagePaths")),
         details=_string_tuple(image_set.get("detailImagePaths")),
@@ -833,12 +841,18 @@ def _build_media_references(image_set: Mapping[str, Any]) -> MediaReferences:
 
 
 def _string_tuple(value: Any) -> tuple[str, ...]:
-    # 图片字段统一转换成去空格、去空字符串的不可变序列，便于后续稳定遍历。
+    # 图片字段统一转换成去两端空白的不可变序列；数组中的空路径直接拒绝。
     if value in (None, ""):
         return ()
     if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
         raise ProductDataError(f"图片字段必须是数组，实际为 {type(value).__name__}")
-    return tuple(str(item).strip() for item in value if str(item).strip())
+    result: list[str] = []
+    for item in value:
+        path = str(item).strip()
+        if not path:
+            raise ProductDataError("图片路径不能为空")
+        result.append(path)
+    return tuple(result)
 
 
 def _safe_extract_zip(zip_path: Path, destination: Path) -> None:

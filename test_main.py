@@ -39,6 +39,55 @@ class ProductMappingTests(unittest.TestCase):
         )
 
 
+class OptionalColorImageUploadTests(unittest.TestCase):
+    def test_empty_color_images_do_not_open_a_carousel_upload_row(self) -> None:
+        automation = object.__new__(main.DewuAutomation)
+        automation.product = SimpleNamespace(colors=("无图",))
+        automation.media = SimpleNamespace(carousel_by_color={"无图": ()})
+        automation.result = main.RunResult()
+        automation._carousel_row = lambda _color: self.fail("empty color must not upload")
+
+        automation._upload_carousel()
+
+        self.assertEqual(automation.result.uploaded_counts["carousel"], 0)
+
+    def test_carousel_upload_keeps_one_two_and_four_file_order(self) -> None:
+        for count in (1, 2, 4):
+            with self.subTest(count=count):
+                uploaded: list[str] = []
+
+                class UploadInput:
+                    def input(self, value: str) -> None:
+                        uploaded.append(value)
+
+                class Row:
+                    def eles(self, _locator: str) -> list[UploadInput]:
+                        return [UploadInput()]
+
+                files = tuple(Path(f"image-{index}.jpg") for index in range(1, count + 1))
+                automation = object.__new__(main.DewuAutomation)
+                automation.product = SimpleNamespace(colors=("测试色",))
+                automation.media = SimpleNamespace(carousel_by_color={"测试色": files})
+                automation.result = main.RunResult()
+                automation._carousel_row = lambda _color: Row()
+                automation._carousel_image_count = lambda _row: len(uploaded)
+                automation._wait_carousel_count = (
+                    lambda _color, expected: self.assertEqual(len(uploaded), expected)
+                )
+
+                automation._upload_carousel()
+
+                self.assertEqual(uploaded, [str(path) for path in files])
+                self.assertEqual(automation.result.uploaded_counts["carousel"], count)
+
+    def test_empty_detail_section_does_not_find_or_upload_a_file_input(self) -> None:
+        automation = object.__new__(main.DewuAutomation)
+        automation.result = main.RunResult()
+        automation._detail_section = lambda _label: self.fail("empty section must not upload")
+
+        self.assertEqual(automation._upload_section("商品展示", ()), 0)
+
+
 class SizeGuidanceConfigTests(unittest.TestCase):
     def test_size_guidance_file_normalizes_trailing_hyphen_and_5x(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -365,6 +414,67 @@ class WorkflowOrderTests(unittest.TestCase):
         self.assertEqual(save_calls, [True])
         self.assertEqual(automation.result.status, "draft_saved")
         self.assertEqual(automation.result.validation_errors, ["销售规格 填写有误"])
+
+    def test_empty_media_page_error_pauses_before_saving_a_draft(self) -> None:
+        automation = object.__new__(main.DewuAutomation)
+        automation.tab = SimpleNamespace(
+            url="https://stark.dewu.com/vueProduct/newProductApply/spuEdit/operation/1"
+        )
+        automation.product = SimpleNamespace(colors=("无图",))
+        automation.media = SimpleNamespace(
+            carousel_by_color={"无图": ()},
+            product_display_backs=(),
+            details=(),
+            outfit_fronts=(),
+        )
+        automation.settings = SimpleNamespace(skip_size_chart=False, save_draft=True)
+        automation.result = main.RunResult()
+        for name in (
+            "_verify_target_page",
+            "_fill_basic_fields",
+            "_fill_title",
+            "_fill_attributes",
+            "_fill_colors",
+            "_fill_sizes",
+            "_upload_size_guidance",
+            "_fill_skus",
+            "_upload_carousel",
+            "_upload_detail_sections",
+            "_fill_external_link",
+        ):
+            setattr(automation, name, lambda: None)
+        automation._read_visible_errors = lambda: ["请上传图片"]
+        automation._save_draft = lambda: self.fail("required empty media must not save")
+
+        automation.run()
+
+        self.assertEqual(automation.result.status, "paused_for_user")
+        self.assertEqual(automation.result.validation_errors, ["请上传图片"])
+
+    def test_save_time_empty_media_error_pauses_and_reports_page_error(self) -> None:
+        automation = object.__new__(main.DewuAutomation)
+        automation.product = SimpleNamespace(colors=("无图",))
+        automation.media = SimpleNamespace(
+            carousel_by_color={"无图": ()},
+            product_display_backs=(),
+            details=(),
+            outfit_fronts=(),
+        )
+        automation.result = main.RunResult()
+        automation._save_success_messages = lambda: []
+        automation._find_visible = lambda *_args, **_kwargs: object()
+        automation._click = lambda _button: None
+        automation._read_visible_errors = lambda: ["请上传图片"]
+
+        def no_success(*_args: object, **_kwargs: object) -> None:
+            raise main.AutomationError("没有捕获到保存草稿成功提示")
+
+        automation._wait_until = no_success
+
+        automation._save_draft()
+
+        self.assertEqual(automation.result.status, "paused_for_user")
+        self.assertIn("请上传图片", automation.result.validation_errors)
 
 
 class TitleInitializationTests(unittest.TestCase):

@@ -735,8 +735,11 @@ class DewuAutomation:
         # 页面可能在填写过程中留下异步校验错误，保存前再统一读取一次可见错误。
         errors = self._read_visible_errors()
         if errors:
-            # 得物允许把这些提示带入草稿；保存草稿本身不是提交审核。
+            # 普通提示可随草稿保存；没有来源图片的区块若被页面判为必填则必须暂停。
             self.result.validation_errors.extend(errors)
+            if self._has_empty_media_blocker(errors):
+                self.result.status = "paused_for_user"
+                return self.result
 
         # --no-save 用于首次调试选择器；填写成功不代表已经保存草稿。
         if not self.settings.save_draft:
@@ -745,6 +748,32 @@ class DewuAutomation:
 
         self._save_draft()
         return self.result
+
+    def _has_empty_media_blocker(self, errors: Sequence[str]) -> bool:
+        """Stop before saving when the page requires a section with no source files."""
+        media = getattr(self, "media", None)
+        product = getattr(self, "product", None)
+        if media is None or product is None:
+            return False
+
+        labels: list[str] = []
+        if not media.product_display_backs:
+            labels.append("商品展示")
+        if not media.details:
+            labels.append("细节呈现")
+        if not media.outfit_fronts:
+            labels.append("穿搭效果")
+        labels.extend(
+            color
+            for color in product.colors
+            if not media.carousel_by_color.get(color, ())
+        )
+        return any(
+            "图片" in error
+            or "轮播" in error
+            or any(label in error for label in labels)
+            for error in errors
+        )
 
     def _verify_target_page(self) -> None:
         # 先校验域名、路径和关键按钮，防止把输入写入错误标签页。
@@ -1994,9 +2023,10 @@ class DewuAutomation:
         # 就继续操作下一张；页面已有多余图片时停止，不自动删除。
         uploaded_total = 0
         for color in self.product.colors:
-            expected_files = self.media.carousel_by_color[color]
-            if len(expected_files) < 2:
-                raise AutomationError(f"颜色“{color}”不足两张轮播图")
+            expected_files = self.media.carousel_by_color.get(color, ())
+            if not expected_files:
+                self.result.warnings.append(f"颜色“{color}”没有来源平铺图，已跳过轮播上传")
+                continue
             row = self._carousel_row(color)
             current = self._carousel_image_count(row)
             if current > len(expected_files):
@@ -2043,17 +2073,12 @@ class DewuAutomation:
 
     def _upload_section(self, label: str, files: Sequence[Path]) -> int:
         # 区块上传采用幂等策略：数量已经完全一致就复用；部分存在则暂停，要求人工清理。
-        container = self._detail_section(label)
-        existing = _uploaded_count(container.text)
         if not files:
-            if existing:
-                raise AutomationError(
-                    f"{label}页面已有 {existing} 张图，但来源没有该类图片；"
-                    "程序不会保留无法核对的旧图片"
-                )
             self.result.warnings.append(f"{label}没有来源图片，已跳过")
             return 0
 
+        container = self._detail_section(label)
+        existing = _uploaded_count(container.text)
         input_element = self._find_any(
             ".//input[@type='file']",
             f"{label}文件输入框",
@@ -2139,8 +2164,15 @@ class DewuAutomation:
         try:
             message = self._wait_until(success_message, timeout=20, message="没有捕获到保存草稿成功提示")
         except AutomationError as error:
-            self.result.status = "not_saved"
-            self.result.validation_errors.append(str(error))
+            errors = self._read_visible_errors()
+            for page_error in errors:
+                if page_error not in self.result.validation_errors:
+                    self.result.validation_errors.append(page_error)
+            self.result.status = (
+                "paused_for_user" if self._has_empty_media_blocker(errors) else "not_saved"
+            )
+            if str(error) not in self.result.validation_errors:
+                self.result.validation_errors.append(str(error))
             return
 
         # 即使草稿保存成功，submission 仍保持未尝试，因为程序明确不提交审核。
@@ -3380,7 +3412,7 @@ def _validate_media_for_page(product: ProductData, media: MediaFiles) -> None:
         raise ProductDataError(f"第一张方图格式不支持：{first_square}")
 
     for color in product.colors:
-        files = media.carousel_by_color[color]
+        files = media.carousel_by_color.get(color, ())
         if len(files) > MAX_CAROUSEL_PER_COLOR:
             raise ProductDataError(
                 f"颜色“{color}”轮播图有 {len(files)} 张，页面上限为 {MAX_CAROUSEL_PER_COLOR} 张"

@@ -63,6 +63,27 @@ def _configured_api_origin() -> str:
     if origin == API_ORIGIN:
         return origin
 
+    if os.environ.get("EBAYDA_ALLOW_STAGING_API") == "1":
+        try:
+            parsed = urlparse(origin)
+            parsed.port
+        except ValueError:
+            raise HelperError("staging API 地址必须是 https://主机[:端口]") from None
+        if (
+            parsed.scheme.casefold() != "https"
+            or not parsed.hostname
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.path not in ("", "/")
+            or parsed.query
+            or parsed.fragment
+        ):
+            raise HelperError("staging API 地址必须是 https://主机[:端口]")
+        return origin
+
+    if origin.casefold().startswith("https://"):
+        raise HelperError("staging API 地址必须显式启用 EBAYDA_ALLOW_STAGING_API=1")
+
     if os.environ.get("EBAYDA_ALLOW_LOCAL_API") != "1":
         raise HelperError("本地 API 地址必须显式启用测试开关")
 

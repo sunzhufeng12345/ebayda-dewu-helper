@@ -30,6 +30,9 @@ def valid_payload(**updates: object) -> dict[str, object]:
         "images_zip_url": (
             "https://www.ebayda.com/api/automation/jobs/job_1/images?signature=zip"
         ),
+        "size_chart_url": (
+            "https://www.ebayda.com/api/automation/jobs/job_1/size-chart?signature=xlsx"
+        ),
     }
     payload.update(updates)
     return payload
@@ -96,6 +99,10 @@ class ClaimedJobTests(unittest.TestCase):
                         "http://101.34.90.101:10112/api/automation/jobs/"
                         "job_1/images"
                     ),
+                    size_chart_url=(
+                        "http://101.34.90.101:10112/api/automation/jobs/"
+                        "job_1/size-chart"
+                    ),
                 )
             )
 
@@ -127,6 +134,9 @@ class ClaimedJobTests(unittest.TestCase):
                 images_zip_url=(
                     "https://www.ebayda.com/api/automation/batch-items/item_1/images"
                 ),
+                size_chart_url=(
+                    "https://www.ebayda.com/api/automation/batch-items/item_1/size-chart"
+                ),
             )
         )
 
@@ -142,6 +152,7 @@ class ClaimedJobTests(unittest.TestCase):
             {"action": "submit"},
             {"shop_id": "../101"},
             {"images_zip_url": ""},
+            {"size_chart_url": ""},
         )
 
         for updates in invalid_updates:
@@ -158,6 +169,7 @@ class DownloadTests(unittest.TestCase):
             {
                 job.product_json_url: _DownloadResponse(b'{"data": {}}'),
                 job.images_zip_url: _DownloadResponse(b"PK\x03\x04zip"),
+                job.size_chart_url: _DownloadResponse(b"xlsx"),
             }
         )
 
@@ -172,6 +184,7 @@ class DownloadTests(unittest.TestCase):
             self.assertEqual(files.images_path.name, "images.zip")
             self.assertEqual(files.json_path.read_bytes(), b'{"data": {}}')
             self.assertEqual(files.images_path.read_bytes(), b"PK\x03\x04zip")
+            self.assertEqual(files.size_chart_path.read_bytes(), b"xlsx")
             self.assertFalse(files.json_path.with_name("product.json.part").exists())
             self.assertFalse(files.images_path.with_name("images.zip.part").exists())
 
@@ -189,6 +202,7 @@ class DownloadTests(unittest.TestCase):
                     content_length=helper_runtime.MAX_PRODUCT_JSON_BYTES + 1,
                 ),
                 job.images_zip_url: _DownloadResponse(b"unused"),
+                job.size_chart_url: _DownloadResponse(b"unused"),
             }
         )
 
@@ -205,6 +219,7 @@ class DownloadTests(unittest.TestCase):
                     b"x" * (helper_runtime.MAX_PRODUCT_JSON_BYTES + 1)
                 ),
                 job.images_zip_url: _DownloadResponse(b"unused"),
+                job.size_chart_url: _DownloadResponse(b"unused"),
             }
         )
 
@@ -222,6 +237,7 @@ class DownloadTests(unittest.TestCase):
                     read_error=URLError(job.job_token),
                 ),
                 job.images_zip_url: _DownloadResponse(b"unused"),
+                job.size_chart_url: _DownloadResponse(b"unused"),
             }
         )
 

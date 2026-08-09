@@ -235,6 +235,7 @@ class TaskExecutionCleanupTests(unittest.TestCase):
             "job_token": "abcdefghijklmnop",
             "product_json_url": "https://www.ebayda.com/api/automation/jobs/job_1/product-json",
             "images_zip_url": "https://www.ebayda.com/api/automation/jobs/job_1/images",
+            "size_chart_url": "https://www.ebayda.com/api/automation/jobs/job_1/size-chart",
         }
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -324,6 +325,9 @@ class ApiOriginTests(unittest.TestCase):
             "images_zip_url": (
                 "https://www.ebayda.com/api/automation/jobs/job_1/images"
             ),
+            "size_chart_url": (
+                "https://www.ebayda.com/api/automation/jobs/job_1/size-chart"
+            ),
         }
         job = helper_runtime.ClaimedJob.from_payload(payload)
 
@@ -347,6 +351,10 @@ class ApiOriginTests(unittest.TestCase):
         self.assertEqual(
             localized.images_zip_url,
             "http://127.0.0.1:18080/api/automation/jobs/job_1/images",
+        )
+        self.assertEqual(
+            localized.size_chart_url,
+            "http://127.0.0.1:18080/api/automation/jobs/job_1/size-chart",
         )
         self.assertEqual(localized.job_token, job.job_token)
 
@@ -385,6 +393,9 @@ class ClaimJobTests(unittest.TestCase):
             ),
             "images_zip_url": (
                 f"https://www.ebayda.com/api/automation/jobs/{job_id}/images"
+            ),
+            "size_chart_url": (
+                f"https://www.ebayda.com/api/automation/jobs/{job_id}/size-chart"
             ),
         }
         payload.update(updates)
@@ -570,6 +581,9 @@ class DevicePollingTests(unittest.TestCase):
             ),
             "images_zip_url": (
                 f"https://www.ebayda.com/api/automation/batch-items/{item_id}/images"
+            ),
+            "size_chart_url": (
+                f"https://www.ebayda.com/api/automation/batch-items/{item_id}/size-chart"
             ),
         }
 
@@ -1124,6 +1138,9 @@ class EventTests(unittest.TestCase):
             "images_zip_url": (
                 "https://www.ebayda.com/api/automation/jobs/job_1/images"
             ),
+            "size_chart_url": (
+                "https://www.ebayda.com/api/automation/jobs/job_1/size-chart"
+            ),
         }
         self.job = helper_runtime.ClaimedJob.from_payload(self.payload)
         self.shop_execution_lock = patch.object(
@@ -1346,6 +1363,7 @@ class EventTests(unittest.TestCase):
             "job_id": "item_1",
             "product_json_url": "https://www.ebayda.com/api/automation/batch-items/item_1/product-json",
             "images_zip_url": "https://www.ebayda.com/api/automation/batch-items/item_1/images",
+            "size_chart_url": "https://www.ebayda.com/api/automation/batch-items/item_1/size-chart",
         }
         files = helper_runtime.TaskFiles(Path("product.json"), Path("images.zip"), Path("work"))
 

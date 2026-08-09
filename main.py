@@ -25,7 +25,8 @@
        细节呈现、穿搭效果。
     6. 校验图片格式（jpg/jpeg/png）、数量上限、单文件大小；
        校验端口、超时时间、出价类型、证明渠道等运行参数。
-    7. 按商品首尾尺码匹配“尺码推荐”“试穿报告”Excel 文件路径。
+    7. 校验网站生成的得物尺码表 Excel，并按商品首尾尺码匹配“尺码推荐”、
+       “试穿报告”辅助文件路径。
     8. 输出预检摘要 JSON：标题、SKU、图片数量、警告、下一步动作，
        供人工核对后再决定是否加 --execute。
 
@@ -46,8 +47,8 @@
            缺失即中止，非必填字段失败仅记警告继续。
         e. 颜色：核对页面已有前缀，补空行、删多余空行，绝不覆盖
            来源之外的非空颜色。
-        f. 尺码表弹窗：按 SIZE_CHART 配置测量列，对齐行数后逐行
-           填写尺码名和测量值，保存后勾选商品实际销售尺码。
+        f. 尺码表弹窗：上传网站生成的得物 Excel，等待解析成功后保存，
+           再勾选商品实际销售尺码。
         g. 上传尺码推荐、试穿报告 Excel（若配置了辅助文件）。
         h. SKU 表：按“颜色×尺码”逐页匹配来源记录，逐行填写
            编码/辅助编码/出价类型/出价/库存/包装长宽高重量。
@@ -102,8 +103,7 @@
         - SKU 出价固定等于吊牌价（忽略来源 skus[].price）
         - START_CATEGORY_PATH=("服装","上衣","卫衣")：起始页类目写死
         - START_AUDIENCE="通用"：起始页适用人群写死
-        - SIZE_CHART 的尺码测量值：当前是宽松卫衣的临时估算值，
-          正式商品应替换为实测值（SIZE_CHART 为空时只填尺码名）
+        - 尺码测量值来自网站生成的得物 Excel，不在助手内猜测或补齐。
         - PACKAGE_DEFAULTS 包装长宽高重量、START_PAGE_URL、图片数量/大小
           上限（MAX_CAROUSEL_PER_COLOR、MAX_DETAIL_FILE_BYTES 等）
 
@@ -178,15 +178,9 @@ PACKAGE_DEFAULTS: Mapping[str, str | None] = {
     "weight_kg": "0.8",
 }
 
-# 当前来源数据只提供尺码名称，没有提供实测参数。下面先按宽松卫衣的常见
-# 递增关系填写临时估算值，仅用于本次页面流程调试；正式商品应替换为实测值。
-SIZE_CHART: Mapping[str, Mapping[str, str]] = {
-    "M": {"1/2胸围(cm)": "55", "衣长(cm)": "68", "袖长(cm)": "61"},
-    "L": {"1/2胸围(cm)": "57", "衣长(cm)": "70", "袖长(cm)": "62"},
-    "XL": {"1/2胸围(cm)": "59", "衣长(cm)": "72", "袖长(cm)": "63"},
-    "2XL": {"1/2胸围(cm)": "61", "衣长(cm)": "74", "袖长(cm)": "64"},
-    "3XL": {"1/2胸围(cm)": "63", "衣长(cm)": "76", "袖长(cm)": "65"},
-}
+# 生产任务不再从本地常量猜测测量值；尺码表必须来自网站生成的 Excel。
+# 保留空映射只兼容旧的单元测试/人工调试调用，主入口会要求 --size-chart。
+SIZE_CHART: Mapping[str, Mapping[str, str]] = {}
 
 # 新建申请的尺码弹窗会先自动放入这组空测量的默认尺码；它不是来源商品数据。
 DEFAULT_SIZE_SCAFFOLD = ("XS", "S", "M", "L", "XL", "2XL")
@@ -242,8 +236,8 @@ class RunSettings:
 
     用 frozen=True 冻结成不可变对象，避免填写流程中被某个步骤意外改写，
     保证起始页与详情页两个阶段读到完全一致的配置。字段来源：main() 中
-    把命令行参数、模块默认常量（PACKAGE_DEFAULTS / SIZE_CHART）和
-    解析出的外链、辅助文件路径汇总后一次性构造。
+    把命令行参数、网站生成的尺码表 Excel、解析出的外链和辅助文件路径
+    汇总后一次性构造。
     """
     debugger_port: int
     offer_type: str
@@ -256,6 +250,7 @@ class RunSettings:
     upload_timeout: float = 120.0
     package_defaults: Mapping[str, str | None] = field(default_factory=lambda: PACKAGE_DEFAULTS)
     size_chart: Mapping[str, Mapping[str, str]] = field(default_factory=lambda: SIZE_CHART)
+    size_chart_file: Path | None = None
     size_recommendation_file: Path | None = None
     try_on_report_file: Path | None = None
 
@@ -283,6 +278,7 @@ class RunResult:
             "product_display": 0,
             "detail": 0,
             "outfit": 0,
+            "size_chart": 0,
             "size_recommendation": 0,
             "try_on_report": 0,
         }
@@ -669,6 +665,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="跳过尺码表，仅用于暂不确定尺码表逻辑时继续调试后续步骤",
     )
+    parser.add_argument(
+        "--size-chart",
+        type=Path,
+        help="网站生成的得物尺码表 Excel；未跳过尺码表时必须提供",
+    )
     parser.add_argument("--timeout", type=float, default=12.0, help="普通页面操作超时秒数")
     return parser.parse_args(argv)
 
@@ -987,6 +988,13 @@ class DewuAutomation:
             raise AutomationError(f"颜色回显不一致：期望 {self.product.colors}，实际 {values}")
 
     def _fill_sizes(self) -> None:
+        size_chart_file = getattr(self.settings, "size_chart_file", None)
+        if size_chart_file is not None:
+            self._upload_dewu_size_chart(size_chart_file)
+            self._select_product_sizes()
+            self._wait_until(lambda: self._sku_variant_rows_present())
+            return
+
         # 尺码表是一个独立弹窗/抽屉：先取得或打开弹窗，再同步列配置、行数和每一行的尺码。
         # 尺码名称来自来源 SKU，测量值只使用显式配置的 SIZE_CHART，不做推测。
         modal = self._open_size_modal()
@@ -1129,6 +1137,114 @@ class DewuAutomation:
 
         self._select_product_sizes()
         self._wait_until(lambda: self._sku_variant_rows_present())
+
+    def _upload_dewu_size_chart(self, file_path: Path) -> None:
+        if not file_path.is_file():
+            raise AutomationError(f"得物尺码表 Excel 文件不存在：{file_path}")
+        modal = self._open_size_modal()
+        upload_input = self._size_chart_upload_input(modal)
+        upload_input.run_js(
+            """
+            this.setAttribute('data-dewu-upload-seen', '0');
+            this.addEventListener(
+                'change',
+                () => this.setAttribute('data-dewu-upload-seen', '1'),
+                {once: true}
+            );
+            """
+        )
+        upload_input.input(str(file_path))
+        self._wait_until(
+            lambda: upload_input.attr("data-dewu-upload-seen") == "1",
+            timeout=self.settings.upload_timeout,
+            message="等待得物尺码表文件选择事件超时",
+        )
+
+        def parsed() -> bool:
+            current_modal = self._locate_size_modal() or modal
+            errors = [
+                re.sub(r"\s+", " ", item.text.strip())
+                for item in self._visible_elements(
+                    ".//*[contains(@class,'error') or contains(@class,'Error')"
+                    " or contains(.,'解析失败') or contains(.,'解析错误')]",
+                    scope=current_modal,
+                )
+                if item.text.strip()
+            ]
+            if errors:
+                raise AutomationError(f"得物尺码表解析失败：{'；'.join(dict.fromkeys(errors))}")
+            try:
+                table = self._size_table(current_modal)
+                rows = self._size_rows(table)
+            except AutomationError:
+                return False
+            return any(
+                _element_value(input_element)
+                for row in rows
+                for input_element in row.eles("xpath:.//input")
+                if _is_displayed(input_element)
+            )
+
+        self._wait_until(
+            parsed,
+            timeout=self.settings.upload_timeout,
+            message="等待得物解析尺码表完成超时",
+        )
+        current_modal = self._locate_size_modal() or modal
+        confirm = self._find_visible(
+            ".//button[normalize-space(.)='确 定' or normalize-space(.)='确定']",
+            "尺码表确定按钮",
+            scope=current_modal,
+        )
+        if _is_disabled(confirm):
+            raise AutomationError("得物尺码表解析完成但确定按钮仍不可用")
+        self._click(confirm)
+        self._wait_until(
+            self._size_modal_closed,
+            timeout=5,
+            message="得物尺码表解析成功后弹窗没有关闭",
+        )
+        self.result.uploaded_counts["size_chart"] = 1
+        if "size_chart" not in self.result.completed_sections:
+            self.result.completed_sections.append("size_chart")
+
+    def _size_chart_upload_input(self, modal: Any) -> Any:
+        try:
+            return self._find_any(
+                ".//input[@type='file']",
+                "得物尺码表文件输入框",
+                scope=modal,
+            )
+        except AutomationError:
+            pass
+
+        upload_buttons = self._visible_elements(
+            ".//button[contains(normalize-space(.),'导入')"
+            " or contains(normalize-space(.),'上传')"
+            " or contains(normalize-space(.),'Excel')"
+            " or contains(normalize-space(.),'文件')]",
+            scope=modal,
+        )
+        if not upload_buttons:
+            raise AutomationError("得物尺码表弹窗找不到 Excel 上传入口")
+        self._click(upload_buttons[0])
+
+        def locate() -> Any | None:
+            current_modal = self._locate_size_modal() or modal
+            try:
+                return self._find_any(
+                    ".//input[@type='file']",
+                    "得物尺码表文件输入框",
+                    scope=current_modal,
+                )
+            except AutomationError:
+                return None
+
+        return self._wait_until(
+            locate,
+            timeout=self.settings.timeout,
+            message="得物尺码表上传入口没有出现文件控件",
+        )
 
     def _upload_size_guidance(self) -> None:
         # 两个辅助表使用同一套弹窗流程；文件路径已在连接浏览器前完成解析和存在性校验。
@@ -3189,6 +3305,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         json_path = _resolve_input(args.json, script_dir, "*.json", "JSON")
         zip_path = _resolve_input(args.images, script_dir, "*.zip", "ZIP")
+        size_chart_path = None
+        if not args.skip_size_chart:
+            if args.size_chart is None:
+                raise ProductDataError("未提供网站生成的得物尺码表 Excel，请传入 --size-chart")
+            size_chart_path = _resolve_input(args.size_chart, script_dir, "*.xlsx", "尺码表")
         work_dir = (args.work_dir or script_dir / ".dewu_work").resolve()
 
         # 先把来源转换为不可变 ProductData，再依次应用配置文件和命令行属性覆盖。
@@ -3227,6 +3348,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             save_draft=not args.no_save,
             skip_size_chart=args.skip_size_chart,
             timeout=args.timeout,
+            size_chart_file=size_chart_path,
             size_recommendation_file=size_recommendation_file,
             try_on_report_file=try_on_report_file,
         )
@@ -3489,11 +3611,6 @@ def _effective_warnings(
 ) -> list[str]:
     # 合并来源解析、图片解析和当前配置产生的警告。
     warnings = list(product.warnings) + list(media.warnings)
-    if not SIZE_CHART:
-        warnings.append(
-            f"SIZE_CHART 为空，本次只填写 {'/'.join(product.sizes)} 尺码名称；"
-            "若页面强制要求测量参数，程序会停在尺码抽屉并报告错误"
-        )
     if not any(value not in (None, "") for value in PACKAGE_DEFAULTS.values()):
         warnings.append(
             "PACKAGE_DEFAULTS 为空，SKU 包装长宽高和重量不会写入；"

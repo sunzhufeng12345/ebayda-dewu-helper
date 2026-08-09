@@ -25,6 +25,7 @@ DOWNLOAD_TIMEOUT_SECONDS = 120
 DOWNLOAD_CHUNK_BYTES = 64 * 1024
 MAX_PRODUCT_JSON_BYTES = 10 * 1024 * 1024
 MAX_IMAGES_ZIP_BYTES = 2 * 1024 * 1024 * 1024
+MAX_SIZE_CHART_BYTES = 20 * 1024 * 1024
 SAFE_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
 TRUSTED_DOWNLOAD_ORIGINS = {
     ("https", "www.ebayda.com", None),
@@ -65,6 +66,7 @@ class ClaimedJob:
     job_token: str
     product_json_url: str
     images_zip_url: str
+    size_chart_url: str
     event_url: str
 
     @classmethod
@@ -88,6 +90,9 @@ class ClaimedJob:
         images_zip_url = _trusted_resource_url(
             payload.get("images_zip_url"), job_id, "images"
         )
+        size_chart_url = _trusted_resource_url(
+            payload.get("size_chart_url"), job_id, "size-chart"
+        )
         return cls(
             job_id=job_id,
             shop_id=shop_id,
@@ -95,6 +100,7 @@ class ClaimedJob:
             job_token=job_token,
             product_json_url=product_json_url,
             images_zip_url=images_zip_url,
+            size_chart_url=size_chart_url,
             event_url=_event_url(product_json_url),
         )
 
@@ -104,6 +110,7 @@ class TaskFiles:
     json_path: Path
     images_path: Path
     work_dir: Path
+    size_chart_path: Path | None = None
 
 
 def prepare_job_files(
@@ -117,6 +124,7 @@ def prepare_job_files(
     work_dir.mkdir(parents=True, exist_ok=True)
     json_path = job_dir / "product.json"
     images_path = job_dir / "images.zip"
+    size_chart_path = job_dir / "size-chart.xlsx"
     _download(
         job.product_json_url,
         json_path,
@@ -131,7 +139,19 @@ def prepare_job_files(
         MAX_IMAGES_ZIP_BYTES,
         open_url,
     )
-    return TaskFiles(json_path=json_path, images_path=images_path, work_dir=work_dir)
+    _download(
+        job.size_chart_url,
+        size_chart_path,
+        job.job_token,
+        MAX_SIZE_CHART_BYTES,
+        open_url,
+    )
+    return TaskFiles(
+        json_path=json_path,
+        images_path=images_path,
+        work_dir=work_dir,
+        size_chart_path=size_chart_path,
+    )
 
 
 def application_root() -> Path:
@@ -341,6 +361,8 @@ def run_automation(
         str(port),
         "--execute",
     ]
+    if files.size_chart_path is not None:
+        arguments.extend(("--size-chart", str(files.size_chart_path)))
     stdout = io.StringIO()
     stderr = io.StringIO()
     with redirect_stdout(stdout), redirect_stderr(stderr):

@@ -313,6 +313,45 @@ class ApiOriginTests(unittest.TestCase):
         ), self.assertRaises(ebayda_helper.HelperError):
             ebayda_helper._configured_api_origin()
 
+    def test_staging_https_origin_requires_explicit_flag(self) -> None:
+        with patch.dict(
+            os.environ,
+            {"EBAYDA_API_ORIGIN": "https://staging.bookthink.cloud"},
+            clear=True,
+        ), self.assertRaisesRegex(
+            ebayda_helper.HelperError,
+            "^staging API 地址必须显式启用 EBAYDA_ALLOW_STAGING_API=1$",
+        ):
+            ebayda_helper._configured_api_origin()
+
+    def test_staging_https_origin_is_allowed_with_explicit_flag(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "EBAYDA_API_ORIGIN": "https://staging.bookthink.cloud",
+                "EBAYDA_ALLOW_STAGING_API": "1",
+            },
+            clear=True,
+        ):
+            self.assertEqual(
+                ebayda_helper._configured_api_origin(),
+                "https://staging.bookthink.cloud",
+            )
+
+    def test_staging_https_ip_origin_keeps_explicit_port(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "EBAYDA_API_ORIGIN": "https://101.34.90.101:8443",
+                "EBAYDA_ALLOW_STAGING_API": "1",
+            },
+            clear=True,
+        ):
+            self.assertEqual(
+                ebayda_helper._configured_api_origin(),
+                "https://101.34.90.101:8443",
+            )
+
     def test_local_api_origin_rewrites_claimed_resource_paths_only(self) -> None:
         payload = {
             "job_id": "job_1",

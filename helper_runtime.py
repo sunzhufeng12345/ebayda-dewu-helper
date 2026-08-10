@@ -497,7 +497,7 @@ def _trusted_resource_url(value: object, job_id: str, resource: str) -> str:
     }
     if (
         (parsed.scheme.casefold(), parsed.hostname, port)
-        not in TRUSTED_DOWNLOAD_ORIGINS
+        not in _configured_download_origins()
         or parsed.username is not None
         or parsed.password is not None
         or parsed.path not in expected_paths
@@ -506,6 +506,43 @@ def _trusted_resource_url(value: object, job_id: str, resource: str) -> str:
     ):
         raise TaskExecutionError("任务数据错误：下载地址不受信任")
     return url
+
+
+def _configured_download_origins() -> set[tuple[str, str | None, int | None]]:
+    origins = set(TRUSTED_DOWNLOAD_ORIGINS)
+    configured = os.environ.get("EBAYDA_API_ORIGIN", "").rstrip("/")
+    if not configured:
+        return origins
+    try:
+        parsed = urlparse(configured)
+        port = parsed.port
+    except ValueError:
+        return origins
+    if (
+        not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.path not in ("", "/")
+        or parsed.query
+        or parsed.fragment
+    ):
+        return origins
+    scheme = parsed.scheme.casefold()
+    if scheme == "https" and (
+        configured == "https://www.ebayda.com"
+        or os.environ.get("EBAYDA_ALLOW_STAGING_API") == "1"
+    ):
+        origins.add((scheme, parsed.hostname, port))
+        if port in (None, 443):
+            origins.add((scheme, parsed.hostname, 443 if port is None else None))
+    elif (
+        scheme == "http"
+        and parsed.hostname == "127.0.0.1"
+        and port is not None
+        and os.environ.get("EBAYDA_ALLOW_LOCAL_API") == "1"
+    ):
+        origins.add((scheme, parsed.hostname, port))
+    return origins
 
 
 def _event_url(product_json_url: str) -> str:

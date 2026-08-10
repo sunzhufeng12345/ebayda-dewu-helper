@@ -106,6 +106,45 @@ class ClaimedJobTests(unittest.TestCase):
                 )
             )
 
+    def test_staging_https_payload_is_allowed_with_explicit_flag(self) -> None:
+        with patch.dict(
+            helper_runtime.os.environ,
+            {
+                "EBAYDA_API_ORIGIN": "https://staging.bookthink.cloud",
+                "EBAYDA_ALLOW_STAGING_API": "1",
+            },
+            clear=True,
+        ):
+            job = helper_runtime.ClaimedJob.from_payload(
+                valid_payload(
+                    product_json_url=(
+                        "https://staging.bookthink.cloud/api/automation/jobs/"
+                        "job_1/product-json"
+                    ),
+                    images_zip_url=(
+                        "https://staging.bookthink.cloud/api/automation/jobs/"
+                        "job_1/images"
+                    ),
+                )
+            )
+
+        self.assertEqual(job.product_json_url.split("/api/", 1)[0], "https://staging.bookthink.cloud")
+
+    def test_staging_https_payload_is_rejected_without_explicit_flag(self) -> None:
+        with patch.dict(
+            helper_runtime.os.environ,
+            {"EBAYDA_API_ORIGIN": "https://staging.bookthink.cloud"},
+            clear=True,
+        ), self.assertRaises(helper_runtime.TaskExecutionError):
+            helper_runtime.ClaimedJob.from_payload(
+                valid_payload(
+                    product_json_url=(
+                        "https://staging.bookthink.cloud/api/automation/jobs/"
+                        "job_1/product-json"
+                    )
+                )
+            )
+
     def test_urls_must_be_https_ebayda_job_resources(self) -> None:
         invalid_urls = (
             "http://www.ebayda.com/api/automation/jobs/job_1/product-json",

@@ -9,6 +9,7 @@ import socket
 import subprocess
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
 from collections.abc import Callable, Mapping
 from contextlib import contextmanager, redirect_stderr, redirect_stdout
 from dataclasses import dataclass
@@ -125,27 +126,18 @@ def prepare_job_files(
     json_path = job_dir / "product.json"
     images_path = job_dir / "images.zip"
     size_chart_path = job_dir / "size-chart.xlsx"
-    _download(
-        job.product_json_url,
-        json_path,
-        job.job_token,
-        MAX_PRODUCT_JSON_BYTES,
-        open_url,
+    downloads = (
+        (job.product_json_url, json_path, MAX_PRODUCT_JSON_BYTES),
+        (job.images_zip_url, images_path, MAX_IMAGES_ZIP_BYTES),
+        (job.size_chart_url, size_chart_path, MAX_SIZE_CHART_BYTES),
     )
-    _download(
-        job.images_zip_url,
-        images_path,
-        job.job_token,
-        MAX_IMAGES_ZIP_BYTES,
-        open_url,
-    )
-    _download(
-        job.size_chart_url,
-        size_chart_path,
-        job.job_token,
-        MAX_SIZE_CHART_BYTES,
-        open_url,
-    )
+    with ThreadPoolExecutor(max_workers=len(downloads)) as executor:
+        futures = [
+            executor.submit(_download, url, destination, job.job_token, maximum, open_url)
+            for url, destination, maximum in downloads
+        ]
+        for future in futures:
+            future.result()
     return TaskFiles(
         json_path=json_path,
         images_path=images_path,

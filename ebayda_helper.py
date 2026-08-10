@@ -9,6 +9,7 @@ import secrets
 import subprocess
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -849,9 +850,12 @@ def execute_claimed_job(payload: Mapping[str, Any]) -> tuple[str, str, str]:
         job = _localize_claimed_job(job, _configured_api_origin())
         with shop_execution_lock(app_root, job.shop_id):
             post_event(job, "preparing")
-            files = prepare_job_files(job, app_root)
             profile = shop_profile(app_root, job.shop_id)
-            port = ensure_chrome(profile)
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                files_future = executor.submit(prepare_job_files, job, app_root)
+                chrome_future = executor.submit(ensure_chrome, profile)
+                files = files_future.result()
+                port = chrome_future.result()
             post_event(job, "running")
             automation = run_automation(files, port)
             exit_code = getattr(automation, "exit_code", automation)

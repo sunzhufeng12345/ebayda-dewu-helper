@@ -9,6 +9,7 @@ from collections.abc import Mapping
 from contextlib import nullcontext, redirect_stderr, redirect_stdout
 from inspect import signature
 from pathlib import Path
+from threading import Event, Lock, Thread
 from types import MappingProxyType
 from typing import Any, get_type_hints
 from unittest.mock import patch
@@ -1259,19 +1260,57 @@ class EventTests(unittest.TestCase):
             result = ebayda_helper.execute_claimed_job(self.payload)
 
         self.assertEqual(result, ("draft_saved", "job_1", "101"))
-        self.assertEqual(
-            calls,
-            [
-                "preparing",
-                "download",
-                "profile",
-                "chrome",
-                "running",
-                "automation",
-                "draft_saved",
-            ],
-        )
+        self.assertEqual(calls[:2], ["preparing", "profile"])
+        self.assertCountEqual(calls[2:4], ["download", "chrome"])
+        self.assertEqual(calls[4:], ["running", "automation", "draft_saved"])
         self.shop_execution_lock_mock.assert_called_once_with(Path("app"), "101")
+
+    def test_execution_prepares_files_and_chrome_in_parallel(self) -> None:
+        files = helper_runtime.TaskFiles(Path("product.json"), Path("images.zip"), Path("work"))
+        started: set[str] = set()
+        started_lock = Lock()
+        all_started = Event()
+        release = Event()
+        result: list[tuple[str, str, str]] = []
+        errors: list[BaseException] = []
+
+        def wait_for_other(name: str, value: object) -> object:
+            with started_lock:
+                started.add(name)
+                if len(started) == 2:
+                    all_started.set()
+            release.wait(1)
+            return value
+
+        def execute() -> None:
+            try:
+                result.append(ebayda_helper.execute_claimed_job(self.payload))
+            except BaseException as error:
+                errors.append(error)
+
+        with patch.object(
+            ebayda_helper, "application_root", return_value=Path("app")
+        ), patch.object(ebayda_helper, "post_event"), patch.object(
+            ebayda_helper,
+            "prepare_job_files",
+            side_effect=lambda *_args: wait_for_other("download", files),
+        ), patch.object(
+            ebayda_helper, "shop_profile", return_value=Path("profile")
+        ), patch.object(
+            ebayda_helper,
+            "ensure_chrome",
+            side_effect=lambda *_args: wait_for_other("chrome", 17321),
+        ), patch.object(ebayda_helper, "run_automation", return_value=0):
+            thread = Thread(target=execute)
+            thread.start()
+            prepared_together = all_started.wait(1)
+            release.set()
+            thread.join(1)
+
+        self.assertTrue(prepared_together)
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(errors, [])
+        self.assertEqual(result, [("draft_saved", "job_1", "101")])
 
     def test_automation_exit_codes_map_to_public_statuses(self) -> None:
         expected = {
@@ -1372,7 +1411,7 @@ class EventTests(unittest.TestCase):
             with self.assertRaises(ebayda_helper.HelperError):
                 ebayda_helper.execute_claimed_job(self.payload)
 
-        chrome.assert_not_called()
+        chrome.assert_called_once()
         self.assertEqual(events, ["preparing", "failed"])
 
     def test_final_event_failure_does_not_change_saved_result(self) -> None:

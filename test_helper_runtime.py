@@ -9,7 +9,7 @@ from contextlib import redirect_stderr, redirect_stdout
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from inspect import signature
 from pathlib import Path
-from threading import Event, Thread
+from threading import Event, Lock, Thread
 from types import SimpleNamespace
 from unittest.mock import patch
 from urllib.error import HTTPError, URLError
@@ -231,6 +231,52 @@ class DownloadTests(unittest.TestCase):
             headers = {name.casefold(): value for name, value in request.header_items()}
             self.assertEqual(headers["authorization"], "JobToken abcdefghijklmnop")
             self.assertEqual(timeout, helper_runtime.DOWNLOAD_TIMEOUT_SECONDS)
+
+    def test_prepare_job_files_downloads_resources_in_parallel(self) -> None:
+        job = helper_runtime.ClaimedJob.from_payload(valid_payload())
+        responses = {
+            job.product_json_url: _DownloadResponse(b'{}'),
+            job.images_zip_url: _DownloadResponse(b"PK\x03\x04zip"),
+            job.size_chart_url: _DownloadResponse(b"xlsx"),
+        }
+        started: set[str] = set()
+        started_lock = Lock()
+        all_started = Event()
+        release = Event()
+        result: list[helper_runtime.TaskFiles] = []
+        errors: list[BaseException] = []
+
+        def opener(request: object, *, timeout: int) -> _DownloadResponse:
+            self.assertEqual(timeout, helper_runtime.DOWNLOAD_TIMEOUT_SECONDS)
+            with started_lock:
+                started.add(request.full_url)
+                if len(started) == len(responses):
+                    all_started.set()
+            release.wait(1)
+            return responses[request.full_url]
+
+        def prepare() -> None:
+            try:
+                with tempfile.TemporaryDirectory() as directory:
+                    result.append(
+                        helper_runtime.prepare_job_files(
+                            job, Path(directory), open_url=opener
+                        )
+                    )
+            except BaseException as error:
+                errors.append(error)
+
+        thread = Thread(target=prepare)
+        thread.start()
+        downloaded_together = all_started.wait(1)
+        release.set()
+        thread.join(1)
+
+        self.assertTrue(downloaded_together)
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(errors, [])
+        self.assertEqual(len(started), len(responses))
+        self.assertEqual(len(result), 1)
 
     def test_declared_oversized_download_is_rejected(self) -> None:
         job = helper_runtime.ClaimedJob.from_payload(valid_payload())

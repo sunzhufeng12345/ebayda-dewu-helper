@@ -26,9 +26,11 @@ DOWNLOAD_CHUNK_BYTES = 64 * 1024
 MAX_PRODUCT_JSON_BYTES = 10 * 1024 * 1024
 MAX_IMAGES_ZIP_BYTES = 2 * 1024 * 1024 * 1024
 SAFE_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
+# 测试环境：生产请改回仅保留 https://www.ebayda.com
 TRUSTED_DOWNLOAD_ORIGINS = {
     ("https", "www.ebayda.com", None),
     ("https", "www.ebayda.com", 443),
+    ("http", "101.34.90.101", 10112),
 }
 SENSITIVE_MESSAGE_PATTERN = re.compile(
     r"(?i)\b(ticket|job[_-]?token|jwt|password|authorization)\b"

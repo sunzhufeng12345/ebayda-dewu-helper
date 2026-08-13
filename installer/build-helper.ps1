@@ -3,14 +3,18 @@ chcp 65001 | Out-Null
 $env:PYTHONUTF8 = "1"
 $repoRoot = Split-Path -Parent $PSScriptRoot
 
+# Unicode escape for Chinese directory name to avoid .ps1 encoding issues on Windows PowerShell 5.1
+# Original name: U+914D U+7F6E U+6587 U+4EF6
+$configDirName = [string]::new([char[]](0x914D, 0x7F6E, 0x6587, 0x4EF6))
+
 Push-Location $repoRoot
 try {
     python -m PyInstaller --version | Out-Null
 
-    # Windows CI 上中文路径编码不可靠，先复制为英文名再打包
+    # Windows CI Chinese path encoding is unreliable; copy to English name before packaging
     $configTmp = "_ebayda_config_tmp"
     if (Test-Path $configTmp) { Remove-Item $configTmp -Recurse -Force }
-    Copy-Item "配置文件" $configTmp -Recurse
+    Copy-Item -LiteralPath $configDirName -Destination $configTmp -Recurse
 
     python -m PyInstaller --noconfirm --clean --onefile --name EbaydaHelper --add-data "$configTmp;_ebayda_config" ebayda_helper.py
 
@@ -19,7 +23,7 @@ try {
         "${env:ProgramFiles}\Inno Setup 6\ISCC.exe"
     ) | Where-Object { Test-Path $_ } | Select-Object -First 1
     if (-not $iscc) {
-        throw "未找到 Inno Setup 6，请先安装后重试。"
+        throw "Inno Setup 6 not found, please install it first."
     }
     & $iscc "$PSScriptRoot\EbaydaHelper.iss"
 }

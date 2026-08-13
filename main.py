@@ -206,13 +206,21 @@ def _resolve_config_root() -> Path:
     # PyInstaller onefile 模式下 __file__ 指向临时解压目录 _MEIPASS；
     # 优先查找 EXE 同级目录的配置文件（方便用户更新 Excel 无需重新打包），
     # 其次回退到打包时 --add-data 嵌入的临时目录。
+    # 打包时中文目录名"配置文件"在 Windows CI 上编码不可靠，改用英文名 _ebayda_config。
+    config_names = ["配置文件", "_ebayda_config"]
     script_dir = Path(__file__).resolve().parent
     if getattr(sys, "frozen", False):
         exe_dir = Path(sys.executable).resolve().parent
-        if (exe_dir / "配置文件").is_dir():
-            return exe_dir / "配置文件"
+        for name in config_names:
+            if (exe_dir / name).is_dir():
+                return exe_dir / name
         if hasattr(sys, "_MEIPASS"):
-            return Path(sys._MEIPASS) / "配置文件"
+            for name in config_names:
+                if (Path(sys._MEIPASS) / name).is_dir():
+                    return Path(sys._MEIPASS) / name
+    for name in config_names:
+        if (script_dir / name).is_dir():
+            return script_dir / name
     return script_dir / "配置文件"
 
 

@@ -19,11 +19,9 @@ jobs:
           python-version: '3.12'
       - run: python -m pip install --upgrade pip
       - run: python -m pip install -r requirements.txt pyinstaller
-      # 测试失败不阻塞打包，结果仅作参考
       - run: python -m unittest discover
-        continue-on-error: true
       - run: choco install innosetup --no-progress --yes
-      - run: pwsh -ExecutionPolicy Bypass -File installer/build-helper.ps1
+      - run: powershell -ExecutionPolicy Bypass -File installer/build-helper.ps1
       - uses: actions/upload-artifact@v4
         with:
           name: EbaydaHelperSetup

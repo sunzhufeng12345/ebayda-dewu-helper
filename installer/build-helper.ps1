@@ -4,7 +4,7 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 Push-Location $repoRoot
 try {
     python -m PyInstaller --version | Out-Null
-    python -m PyInstaller --noconfirm --clean --onefile --name EbaydaHelper ebayda_helper.py
+    python -m PyInstaller --noconfirm --clean --onefile --name EbaydaHelper --add-data "配置文件;配置文件" ebayda_helper.py
 
     $iscc = @(
         "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",

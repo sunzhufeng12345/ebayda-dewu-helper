@@ -196,7 +196,21 @@ START_CATEGORY_PATH = ("服装", "上衣", "卫衣")
 START_AUDIENCE = "通用"
 TARGET_PATH_FRAGMENT = "/vueProduct/newProductApply/spuEdit/operation/"
 SAVE_RESULT_PATH_FRAGMENT = "/main/newProductApply/spuEdit/result"
-CONFIG_ROOT = Path(__file__).resolve().parent / "配置文件"
+def _resolve_config_root() -> Path:
+    # PyInstaller onefile 模式下 __file__ 指向临时解压目录 _MEIPASS；
+    # 优先查找 EXE 同级目录的配置文件（方便用户更新 Excel 无需重新打包），
+    # 其次回退到打包时 --add-data 嵌入的临时目录。
+    script_dir = Path(__file__).resolve().parent
+    if getattr(sys, "frozen", False):
+        exe_dir = Path(sys.executable).resolve().parent
+        if (exe_dir / "配置文件").is_dir():
+            return exe_dir / "配置文件"
+        if hasattr(sys, "_MEIPASS"):
+            return Path(sys._MEIPASS) / "配置文件"
+    return script_dir / "配置文件"
+
+
+CONFIG_ROOT = _resolve_config_root()
 SIZE_GUIDANCE_BUTTONS: Mapping[str, str] = {
     "尺码推荐": "添加尺码推荐",
     "试穿报告": "添加试穿报告",

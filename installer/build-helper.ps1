@@ -16,7 +16,7 @@ try {
     if (Test-Path $configTmp) { Remove-Item $configTmp -Recurse -Force }
     Copy-Item -LiteralPath $configDirName -Destination $configTmp -Recurse
 
-    python -m PyInstaller --noconfirm --clean --onefile --name EbaydaHelper --add-data "$configTmp;_ebayda_config" ebayda_helper.py
+    python -m PyInstaller --noconfirm --clean --onefile --name EbaydaHelper --hidden-import openpyxl --add-data "$configTmp;_ebayda_config" ebayda_helper.py
 
     $iscc = @(
         "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",

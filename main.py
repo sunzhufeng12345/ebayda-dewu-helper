@@ -95,17 +95,18 @@
         - 配置文件/ 目录下的尺码辅助 Excel（尺码推荐/试穿报告），
           按商品首尾尺码自动匹配文件名。
 
-    (2) 写死参数（固定值，与来源 JSON 无关，需改代码）
-        - FIXED_EXTERNAL_LINK="无"（models.py）：外链固定填“无”
-        - FIXED_SKU_INVENTORY=1000（models.py）：每条 SKU 库存固定 1000
-        - 适用人群固定“通用”（models.py 的 audience）
-        - SKU 出价固定等于吊牌价（忽略来源 skus[].price）
-        - START_CATEGORY_PATH=("服装","上衣","卫衣")：起始页类目写死
-        - START_AUDIENCE="通用"：起始页适用人群写死
-        - SIZE_CHART 的尺码测量值：当前是宽松卫衣的临时估算值，
-          正式商品应替换为实测值（SIZE_CHART 为空时只填尺码名）
-        - PACKAGE_DEFAULTS 包装长宽高重量、START_PAGE_URL、图片数量/大小
-          上限（MAX_CAROUSEL_PER_COLOR、MAX_DETAIL_FILE_BYTES 等）
+    (2) 以往写死、现已改由 配置文件/config.xlsx 驱动的常量
+        （config_loader.load_config 在 main() 启动时读取并覆盖下方“配置区”，
+         文件缺失/非法时回落内置默认值，绝不崩溃）：
+        - 出价类型 / 价格证明渠道 / 日期证明渠道 / 适用人群 / 每条SKU库存(1000)
+          / 外链(无) / START_AUDIENCE(通用)：见 main.py 配置区与 models.py FIXED_*
+        - 起始页类目 START_CATEGORY_PATH：运行时按「类目映射」表由来源
+          categoryPath 解析（最长关键词优先），无命中回落「起始类目(兜底)」
+        - SIZE_CHART 尺码测量值 / PACKAGE_DEFAULTS 包装长宽高重量：同上，来自配置文件
+          （SIZE_CHART 列名须与得物尺码弹窗一致，否则填写时报错）
+        仍保持写死的页面常量（与业务口径无关，一般不改）：
+        - SKU 出价固定等于吊牌价（忽略来源 skus[].price），属业务规则
+        - START_PAGE_URL、图片数量/大小上限（MAX_CAROUSEL_PER_COLOR 等）
 
     (3) 从来源 JSON 字段来的参数（详细对照见 models.py 顶部“对照表”）
         - code           -> 商品编码 + 图片工作目录名
@@ -154,6 +155,7 @@ from models import (
     extract_and_resolve_media,
     load_product,
 )
+import config_loader
 
 
 # =====================================================================
@@ -225,6 +227,29 @@ def _resolve_config_root() -> Path:
 
 
 CONFIG_ROOT = _resolve_config_root()
+
+
+def _apply_config_to_globals(cfg: "config_loader.Config") -> None:
+    """把加载出的配置写回本模块与 models 的全局常量，使后续流程一律走配置值。
+
+    CLI 显式传入的参数仍优先（argparse 默认值才取这里的配置），因此自动化
+    路径不传这些参数时自动套用 Excel 配置，手动调试时又能用命令行覆盖。
+    """
+    global DEFAULT_OFFER_TYPE, DEFAULT_PRICE_PROOF_SOURCE, DEFAULT_RELEASE_PROOF_SOURCE
+    global PACKAGE_DEFAULTS, SIZE_CHART, ATTRIBUTE_OVERRIDES, START_AUDIENCE
+    DEFAULT_OFFER_TYPE = cfg.offer_type
+    DEFAULT_PRICE_PROOF_SOURCE = cfg.price_proof_source
+    DEFAULT_RELEASE_PROOF_SOURCE = cfg.release_proof_source
+    START_AUDIENCE = cfg.applicable_crowd
+    PACKAGE_DEFAULTS = cfg.package_defaults
+    SIZE_CHART = cfg.size_chart
+    ATTRIBUTE_OVERRIDES = cfg.attribute_overrides
+    import models as _models
+
+    _models.FIXED_SKU_INVENTORY = cfg.sku_inventory
+    _models.FIXED_EXTERNAL_LINK = cfg.external_link
+
+
 SIZE_GUIDANCE_BUTTONS: Mapping[str, str] = {
     "尺码推荐": "添加尺码推荐",
     "试穿报告": "添加试穿报告",
@@ -3205,6 +3230,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     任何异常都被转换为带 status 的 JSON 输出到 stderr，并返回对应退出码：
        0=成功  2=数据/自动化异常  3=页面校验未通过  4=未预期错误  130=中止
     """
+    # 启动即加载 Excel 配置，覆盖模块 / models 全局常量；CLI 显式参数仍优先。
+    cfg = config_loader.load_config(CONFIG_ROOT)
+    for _w in cfg.warnings:
+        print(f"[配置] {_w}", file=sys.stderr)
+    _apply_config_to_globals(cfg)
+
     args = parse_args(argv)
     script_dir = Path(__file__).resolve().parent
     result: RunResult | None = None
@@ -3215,6 +3246,9 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         # 先把来源转换为不可变 ProductData，再依次应用配置文件和命令行属性覆盖。
         product = load_product(json_path)
+        # 按来源类目解析得物起始路径（含映射表匹配），覆盖写死的 START_CATEGORY_PATH。
+        global START_CATEGORY_PATH
+        START_CATEGORY_PATH = config_loader.resolve_category(cfg, product)
         if ATTRIBUTE_OVERRIDES:
             product = replace(
                 product,

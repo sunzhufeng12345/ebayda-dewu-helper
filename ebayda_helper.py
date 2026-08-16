@@ -34,6 +34,14 @@ from helper_runtime import (
 
 
 API_ORIGIN = "https://www.ebayda.com"
+
+# --noconsole 打包（无控制台）时 sys.stdout/stderr 可能为 None，
+# 任务末尾 print 状态会直接崩溃；补一个空流兜底。正常开发环境不受影响。
+if sys.stdout is None:
+    sys.stdout = open(os.devnull, "w", encoding="utf-8")
+if sys.stderr is None:
+    sys.stderr = open(os.devnull, "w", encoding="utf-8")
+
 CLAIM_TIMEOUT_SECONDS = 10
 EVENT_TIMEOUT_SECONDS = 10
 BINDING_TIMEOUT_SECONDS = 10

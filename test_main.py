@@ -927,6 +927,9 @@ class _FakeReadonlyInput(_FocusRequiredInput):
     def __init__(self, *, readonly: bool) -> None:
         super().__init__()
         self.readonly = readonly
+        # _choose_form_value 会用 _has_layout 过滤无尺寸的隐藏模板节点；
+        # 桩模拟的是可见可点击输入，需带一个非零尺寸。
+        self.rect = SimpleNamespace(size=(120.0, 32.0))
 
     def attr(self, name: str) -> str | None:
         if name == "readonly" and self.readonly:

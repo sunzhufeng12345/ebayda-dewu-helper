@@ -89,6 +89,15 @@ def _as_text(value) -> str:
     return "" if value is None else str(value).strip()
 
 
+def _split_category_path(value: str) -> tuple[str, ...]:
+    # 类目名本身可含“/”（如 三坑/COSPLAY），因此路径的层级分隔符固定为“>>”，
+    # 与得物页面 Cascader 回显一致；“/”不再作为分隔符，否则含“/”的类目名
+    # 会被错误地切成多级，导致页面上逐级点选与回显校验全部失败。
+    return tuple(
+        part.strip() for part in value.replace("＞＞", ">>").split(">>") if part.strip()
+    )
+
+
 # ---------------------------------------------------------------------------
 # 各 sheet 解析
 # ---------------------------------------------------------------------------
@@ -167,11 +176,14 @@ def _apply_basic(wb, cfg: Config) -> None:
     if v is not None:
         s = _as_text(v)
         if s:
-            parts = tuple(p for p in s.split("/") if p.strip())
-            if parts:
+            parts = _split_category_path(s)
+            if len(parts) == 3:
                 cfg.category_fallback = parts
             else:
-                cfg.warnings.append("起始类目(兜底)无法解析为有效路径，使用默认")
+                cfg.warnings.append(
+                    f"起始类目(兜底)“{s}”不是三级路径（格式：一级>>二级>>三级，"
+                    "如 服装>>上衣>>卫衣），使用默认"
+                )
 
 
 def _apply_package(wb, cfg: Config) -> None:
@@ -235,7 +247,8 @@ def _apply_attribute_overrides(wb, cfg: Config) -> None:
         val = _as_text(row[1])
         if not val:
             continue
-        vals = tuple(v for v in val.split(",") if v.strip())
+        # 中文输入法常打出全角逗号；先归一成半角再分隔，避免多值被当成一个整体。
+        vals = tuple(v for v in val.replace("，", ",").split(",") if v.strip())
         if vals:
             overrides[field_name] = vals
     if overrides:
@@ -256,9 +269,14 @@ def _apply_category_mapping(wb, cfg: Config) -> None:
         path_val = _as_text(row[1])
         if not path_val:
             continue
-        path = tuple(p for p in path_val.split("/") if p.strip())
-        if path:
-            mapping.append((keyword, path))
+        path = _split_category_path(path_val)
+        if len(path) != 3:
+            cfg.warnings.append(
+                f"类目映射“{keyword}”的得物路径“{path_val}”不是三级路径"
+                "（格式：一级>>二级>>三级），已忽略该行"
+            )
+            continue
+        mapping.append((keyword, path))
     if mapping:
         cfg.category_mapping = mapping
 
@@ -294,11 +312,21 @@ def load_config(config_path: Path | None = None) -> Config:
         cfg.warnings.append(f"读取配置失败：{exc}，使用内置默认配置")
         return cfg
     try:
-        _apply_basic(wb, cfg)
-        _apply_package(wb, cfg)
-        _apply_size_chart(wb, cfg)
-        _apply_attribute_overrides(wb, cfg)
-        _apply_category_mapping(wb, cfg)
+        # 每个 sheet 独立兜底：单个表解析异常（如单元格写出 inf/损坏数据）时
+        # 告警并让该部分保持默认，不影响其余 sheet，也绝不向调用方抛异常。
+        for sheet_name, applier in (
+            ("基础设置", _apply_basic),
+            ("包装尺寸", _apply_package),
+            ("尺码表", _apply_size_chart),
+            ("属性覆盖", _apply_attribute_overrides),
+            ("类目映射", _apply_category_mapping),
+        ):
+            try:
+                applier(wb, cfg)
+            except Exception as exc:  # noqa: BLE001 - 单表失败只降级该表
+                cfg.warnings.append(
+                    f"解析「{sheet_name}」失败：{exc}，该部分使用默认配置"
+                )
     finally:
         wb.close()
     return cfg

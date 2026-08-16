@@ -2306,7 +2306,7 @@ class DewuAutomation:
                     form_item,
                     "xpath:.//input[not(@disabled)]",
                 )
-                if _is_displayed(item)
+                if _is_displayed(item) and _has_layout(item)
             ]
             if not inputs:
                 if required:
@@ -2549,12 +2549,38 @@ class DewuAutomation:
 
     def _form_item(self, label: str) -> Any:
         # 得物表单使用 el-form-item 包裹字段，统一从 label 文本向上确定控件作用域。
+        # 匹配分两级，均为“多候选取最内层（自身不再嵌套 el-form-item）”：
+        # 1) 优先字段自己的 el-form-item__label 精确等于字段名——可排除两类干扰：
+        #    新版页面把结构化标题等大区块也包进 el-form-item（后代文本撞上属性名），
+        #    以及 teleport 到页面的其他字段下拉选项文本恰好等于字段名；
+        # 2) 回落到任意后代文本精确匹配（兼容 label 结构特殊的字段）。
         literal = _xpath_literal(label)
-        xpath = (
+        strict_xpath = (
             "//main//*[contains(concat(' ',normalize-space(@class),' '),' el-form-item ')]"
-            f"[.//*[normalize-space(.)={literal}]][1]"
+            f"[.//label[contains(concat(' ',normalize-space(@class),' '),' el-form-item__label ')]"
+            f"[normalize-space(.)={literal}]]"
         )
-        return self._find_visible(xpath, f"表单字段：{label}")
+        loose_xpath = (
+            "//main//*[contains(concat(' ',normalize-space(@class),' '),' el-form-item ')]"
+            f"[.//*[normalize-space(.)={literal}]]"
+        )
+        for xpath in (strict_xpath, loose_xpath):
+            candidates = self._visible_elements(xpath)
+            for item in candidates:
+                try:
+                    nested = item.eles(
+                        "xpath:.//*[contains(concat(' ',normalize-space(@class),' '),' el-form-item ')]",
+                        timeout=0,
+                    )
+                except AttributeError:
+                    # 测试替身可能只实现部分元素 API；拿不到子元素时按叶子节点处理。
+                    nested = []
+                if not nested:
+                    return item
+            if candidates:
+                return candidates[0]
+        # 无候选时保持原有的等待与报错行为（等字段渲染出来）。
+        return self._find_visible(loose_xpath + "[1]", f"表单字段：{label}")
 
     def _wait_for_option(
         self,
@@ -3231,10 +3257,18 @@ def main(argv: Sequence[str] | None = None) -> int:
        0=成功  2=数据/自动化异常  3=页面校验未通过  4=未预期错误  130=中止
     """
     # 启动即加载 Excel 配置，覆盖模块 / models 全局常量；CLI 显式参数仍优先。
-    cfg = config_loader.load_config(CONFIG_ROOT)
+    # 配置引导位于主 try 之前，自身必须兜底：任何未预期异常都回落内置默认并
+    # 告警，绝不允许裸 traceback 破坏本函数的 JSON 输出 / 退出码契约。
+    try:
+        cfg = config_loader.load_config(CONFIG_ROOT)
+        _apply_config_to_globals(cfg)
+    except Exception as error:  # noqa: BLE001 - 配置只是增强项，绝不阻断主流程
+        cfg = config_loader.Config()
+        cfg.warnings.append(
+            f"加载配置时出现未预期错误 {type(error).__name__}: {error}，使用内置默认配置"
+        )
     for _w in cfg.warnings:
         print(f"[配置] {_w}", file=sys.stderr)
-    _apply_config_to_globals(cfg)
 
     args = parse_args(argv)
     script_dir = Path(__file__).resolve().parent
@@ -3249,6 +3283,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         # 按来源类目解析得物起始路径（含映射表匹配），覆盖写死的 START_CATEGORY_PATH。
         global START_CATEGORY_PATH
         START_CATEGORY_PATH = config_loader.resolve_category(cfg, product)
+        # 适用人群以配置为准：models 默认写死“通用”，不覆盖的话详情页下拉
+        # 会把起始页选好的人群改回去，导致上架人群与配置不符。
+        if cfg.applicable_crowd != product.audience:
+            product = replace(product, audience=cfg.applicable_crowd)
         if ATTRIBUTE_OVERRIDES:
             product = replace(
                 product,

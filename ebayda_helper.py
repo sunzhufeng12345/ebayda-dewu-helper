@@ -33,8 +33,7 @@ from helper_runtime import (
 )
 
 
-# 测试环境：生产请改回 https://www.ebayda.com
-API_ORIGIN = "http://101.34.90.101:10112"
+API_ORIGIN = "https://www.ebayda.com"
 CLAIM_TIMEOUT_SECONDS = 10
 EVENT_TIMEOUT_SECONDS = 10
 BINDING_TIMEOUT_SECONDS = 10

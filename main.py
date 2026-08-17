@@ -926,8 +926,18 @@ class DewuAutomation:
         )
 
     def _fill_attributes(self) -> None:
-        # 按页面顺序填写属性。required 中的字段缺失会中止任务，非必填字段失败则记录警告继续。
+        # 按页面顺序填写属性。非必填字段失败记录警告继续；
+        # 必填字段失败退回固定兜底值，保证整个流程能走完，所有回退动作记录到 warnings。
         required = {"领型", "衣长", "版型", "厚度", "面料", "是否加绒"}
+        # 兜底值与 models.py 标题推导的缺省口径一致（衣长=常规款、版型=合身、厚度=适中）。
+        fallbacks = {
+            "领型": "圆领",
+            "衣长": "常规款",
+            "版型": "合身",
+            "厚度": "适中",
+            "面料": "棉",
+            "是否加绒": "不加绒",
+        }
         attributes = dict(self.product.attributes)
 
         ordered_labels = (
@@ -946,19 +956,34 @@ class DewuAutomation:
             "衣门襟",
         )
         for label in ordered_labels:
-            # 来源没有该属性时跳过；来源有值但页面找不到对应控件时再按必填级别处理。
+            # 来源没有该属性时：非必填跳过；必填直接用兜底值补齐，避免保存草稿时被页面拦截。
             values = attributes.get(label)
             if not values:
-                continue
+                if label not in required:
+                    continue
+                values = (fallbacks[label],)
+                self.result.warnings.append(
+                    f"来源缺少必填属性“{label}”，已用兜底值：{values[0]}"
+                )
             try:
                 if label == "成分含量":
                     self._fill_form_text(label, values[0])
                 else:
                     self._choose_form_value(label, values, required=label in required)
             except AutomationError as error:
-                if label in required:
-                    raise
-                self.result.warnings.append(str(error))
+                if label not in required:
+                    self.result.warnings.append(str(error))
+                    continue
+                # 必填值选不中（如下拉选项不存在）：记录原始错误后改用兜底值重试。
+                fallback_value = fallbacks[label]
+                self.result.warnings.append(
+                    f"{error}；必填属性“{label}”改用兜底值：{fallback_value}"
+                )
+                try:
+                    self._choose_form_value(label, (fallback_value,), required=True)
+                except AutomationError:
+                    # 兜底值也选不中说明页面结构异常，抛原始错误便于定位根因。
+                    raise error from None
 
     def _fill_colors(self) -> None:
         # 颜色行是可增删的动态控件。先核对页面已有前缀，再补空行，最后删除多余的空行。

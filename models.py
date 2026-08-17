@@ -74,6 +74,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import shutil
 import tempfile
 from dataclasses import dataclass
@@ -599,6 +600,55 @@ def _category_segment(source_name: str, source_category: str) -> str:
     return cleaned or source_category
 
 
+# 来源"材质"常见写法是「成分 - 百分比」（如 棉 - 30、涤纶(聚酯纤维) - 67、其他 - 3），
+# 而得物面料下拉只提供干净的标准选项。这里做三层归一：
+# 1. 剥掉百分占比后缀，并把顿号/逗号连写的多成分拆开；
+# 2. 把常见同义写法映射为得物标准选项名；
+# 3. 丢弃「其他/其它」这类兜底词（得物没有对应选项，必填字段会被卡死）。
+# 映射表之外的原值原样保留，仍选不中时由页面步骤报"下拉选项不存在：<值>"，便于定位新词。
+_FABRIC_ALIASES = {
+    "涤纶": "聚酯纤维",
+    "涤纶(聚酯纤维)": "聚酯纤维",
+    "涤纶（聚酯纤维）": "聚酯纤维",
+    "聚脂纤维": "聚酯纤维",
+    "纯棉": "棉",
+    "全棉": "棉",
+    "棉100%": "棉",
+    "尼龙": "锦纶",
+    "尼龙(锦纶)": "锦纶",
+    "弹性纤维": "氨纶",
+    "弹性纤维(氨纶)": "氨纶",
+    "氨纶(弹性纤维)": "氨纶",
+    "莱卡": "氨纶",
+    "人造纤维": "粘纤",
+    "粘胶纤维": "粘纤",
+}
+_FABRIC_PERCENT_SUFFIX = re.compile(r"\s*[-−–—]\s*(\d+(?:\.\d+)?)\s*%?\s*$")
+# 来源兜底成分词：得物面料下拉没有对应选项，保留会导致必填字段选不中。
+_FABRIC_FILLER_NAMES = ("其他", "其它")
+
+
+def _normalize_fabric_values(
+    raw_values: Sequence[str] | tuple[str, ...] | None,
+) -> tuple[str, ...]:
+    if not raw_values:
+        return ()
+    normalized: list[str] = []
+    for raw in raw_values:
+        # 一个值里可能顿号连写多个成分（"棉 - 30、涤纶(聚酯纤维) - 67"）。
+        for part in re.split(r"[、，,;；]", str(raw)):
+            name = _FABRIC_PERCENT_SUFFIX.sub("", part.strip())
+            if not name:
+                continue
+            name = _FABRIC_ALIASES.get(name, name)
+            if name not in normalized:
+                normalized.append(name)
+    # 只要还有具体成分就丢掉兜底词；来源只有"其他"时原样保留，
+    # 让页面步骤报"下拉选项不存在"暴露数据问题，而不是悄悄留空。
+    concrete = [name for name in normalized if name not in _FABRIC_FILLER_NAMES]
+    return tuple(concrete) or tuple(normalized)
+
+
 def _build_dewu_attributes(
     source_name: str,
     release_season: str,
@@ -619,15 +669,28 @@ def _build_dewu_attributes(
     copy("领型")
     copy("风格")
     copy("穿着方式", "衣门襟")
-    copy("材质", "面料")
+    fabric_values = _normalize_fabric_values(grouped.get("材质"))
+    if fabric_values:
+        attributes["面料"] = fabric_values
 
-    # 材质含量由材质名称和 subValueNumber 组成一个页面文本字段。
+    # 材质含量是页面文本字段：把每个成分的「归一名 + 占比」逐项拼接，不丢占比信息。
     material_rows = _find_attribute_rows(rows, "caizhi", "材质")
-    if material_rows:
-        material = str(_attribute_scalar(material_rows[0]) or "").strip()
-        percentage = material_rows[0].get("subValueNumber")
-        if material and percentage not in (None, ""):
-            attributes["成分含量"] = (f"{material}{percentage}%",)
+    composition_parts: list[str] = []
+    for row in material_rows:
+        row_percentage = row.get("subValueNumber")
+        for part in re.split(r"[、，,;；]", str(_attribute_scalar(row) or "")):
+            # 占比优先从值文本的「- 30」后缀提取，缺失时退回行级 subValueNumber。
+            match = _FABRIC_PERCENT_SUFFIX.search(part)
+            name = _FABRIC_PERCENT_SUFFIX.sub("", part).strip()
+            if not name:
+                continue
+            name = _FABRIC_ALIASES.get(name, name)
+            percentage = match.group(1) if match else row_percentage
+            text = f"{name}{percentage}%" if percentage not in (None, "") else name
+            if text not in composition_parts:
+                composition_parts.append(text)
+    if composition_parts:
+        attributes["成分含量"] = ("、".join(composition_parts),)
 
     # 来源的“商品类型与品牌”子值对应得物页面的“设计元素”，可能有多行。
     design_element_rows = _find_attribute_rows(rows, "leixing-pinpai", "商品类型与品牌")

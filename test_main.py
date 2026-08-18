@@ -443,6 +443,55 @@ class FormTextFieldTests(unittest.TestCase):
         self.assertEqual(input_element.value, "棉100%")
 
 
+class AttributeFallbackDegradationTests(unittest.TestCase):
+    def _automation(self, attributes: dict) -> tuple[object, list[tuple[str, tuple[str, ...]]]]:
+        automation = object.__new__(main.DewuAutomation)
+        automation.product = SimpleNamespace(attributes=attributes)
+        automation.result = main.RunResult()
+        calls: list[tuple[str, tuple[str, ...]]] = []
+
+        def choose(label: str, values, *, required: bool) -> None:
+            calls.append((label, tuple(values)))
+
+        automation._choose_form_value = choose
+        automation._fill_form_text = lambda *_args: None
+        return automation, calls
+
+    def test_missing_form_field_degrades_to_warning(self) -> None:
+        # 衬衫等类目页面没有“是否加绒”字段：降级为警告继续，不再卡死暂停。
+        automation, _calls = self._automation({"领型": ("翻领",)})
+
+        def choose(label: str, values, *, required: bool) -> None:
+            if label == "是否加绒":
+                raise main.AutomationError(f"找不到表单字段：{label}")
+
+        automation._choose_form_value = choose
+
+        automation._fill_attributes()
+
+        self.assertTrue(
+            any("当前类目页面无此字段" in warning for warning in automation.result.warnings)
+        )
+
+    def test_unselectable_value_still_retries_with_fallback(self) -> None:
+        # 字段存在但值选不中时仍走兜底值重试，不受降级逻辑影响。
+        automation, calls = self._automation({"面料": ("真丝",)})
+
+        def choose(label: str, values, *, required: bool) -> None:
+            calls.append((label, tuple(values)))
+            if "真丝" in values:
+                raise main.AutomationError("字段“面料”没有选中“真丝”")
+
+        automation._choose_form_value = choose
+
+        automation._fill_attributes()
+
+        self.assertIn(("面料", ("棉",)), calls)
+        self.assertTrue(
+            any("改用兜底值" in warning for warning in automation.result.warnings)
+        )
+
+
 class SkuInputOptimizationTests(unittest.TestCase):
     def test_fill_sku_row_batches_non_select_inputs(self) -> None:
         class FakeInput(_FocusRequiredInput):

@@ -974,6 +974,12 @@ class DewuAutomation:
                 if label not in required:
                     self.result.warnings.append(str(error))
                     continue
+                # 页面没有该字段的 el-form-item（如衬衫类目无“是否加绒”）：
+                # 得物按类目动态渲染属性，说明该类目不要求此项，降级为警告继续填写。
+                # 若保存草稿时真缺必填项，得物校验错误会被 _read_visible_errors 捕获，不会静默丢失。
+                if "找不到表单字段" in str(error):
+                    self.result.warnings.append(f"{error}；当前类目页面无此字段，已跳过")
+                    continue
                 # 必填值选不中（如下拉选项不存在）：记录原始错误后改用兜底值重试。
                 fallback_value = fallbacks[label]
                 self.result.warnings.append(

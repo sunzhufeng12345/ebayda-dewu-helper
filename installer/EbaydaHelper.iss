@@ -1,6 +1,6 @@
-﻿; 注意：本文件含中文路径，必须保存为 UTF-8 (带 BOM)，Inno Setup 6 才能正确解析。
+; 注意：本文件含中文路径，必须保存为 UTF-8 (带 BOM)，Inno Setup 6 才能正确解析。
 #define MyAppName "Ebayda Helper"
-#define MyAppVersion "0.3.1"
+#define MyAppVersion "0.3.2"
 #define MyAppExeName "EbaydaHelper.exe"
 
 [Setup]

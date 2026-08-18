@@ -24,6 +24,7 @@ import main as dewu_main
 DOWNLOAD_TIMEOUT_SECONDS = 120
 DOWNLOAD_CHUNK_BYTES = 64 * 1024
 MAX_PRODUCT_JSON_BYTES = 10 * 1024 * 1024
+MAX_SIZE_CHART_BYTES = 10 * 1024 * 1024
 MAX_IMAGES_ZIP_BYTES = 2 * 1024 * 1024 * 1024
 SAFE_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
 TRUSTED_DOWNLOAD_ORIGINS = {
@@ -66,6 +67,8 @@ class ClaimedJob:
     product_json_url: str
     images_zip_url: str
     event_url: str
+    # 旧版后端 claim 响应没有尺码表地址；缺失时自动化回退到本地配置填写。
+    size_chart_url: str | None = None
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> "ClaimedJob":
@@ -88,6 +91,12 @@ class ClaimedJob:
         images_zip_url = _trusted_resource_url(
             payload.get("images_zip_url"), job_id, "images"
         )
+        size_chart_value = payload.get("size_chart_url")
+        size_chart_url = (
+            _trusted_resource_url(size_chart_value, job_id, "size-chart")
+            if size_chart_value
+            else None
+        )
         return cls(
             job_id=job_id,
             shop_id=shop_id,
@@ -96,6 +105,7 @@ class ClaimedJob:
             product_json_url=product_json_url,
             images_zip_url=images_zip_url,
             event_url=_event_url(product_json_url),
+            size_chart_url=size_chart_url,
         )
 
 
@@ -104,6 +114,8 @@ class TaskFiles:
     json_path: Path
     images_path: Path
     work_dir: Path
+    # 后端按得物官方模板生成的尺码表 xlsx；缺失时自动化回退本地配置填写。
+    size_chart_path: Path | None = None
 
 
 def prepare_job_files(
@@ -131,7 +143,22 @@ def prepare_job_files(
         MAX_IMAGES_ZIP_BYTES,
         open_url,
     )
-    return TaskFiles(json_path=json_path, images_path=images_path, work_dir=work_dir)
+    size_chart_path: Path | None = None
+    if job.size_chart_url:
+        size_chart_path = job_dir / "size_chart.xlsx"
+        _download(
+            job.size_chart_url,
+            size_chart_path,
+            job.job_token,
+            MAX_SIZE_CHART_BYTES,
+            open_url,
+        )
+    return TaskFiles(
+        json_path=json_path,
+        images_path=images_path,
+        work_dir=work_dir,
+        size_chart_path=size_chart_path,
+    )
 
 
 def application_root() -> Path:
@@ -341,6 +368,8 @@ def run_automation(
         str(port),
         "--execute",
     ]
+    if files.size_chart_path is not None:
+        arguments.extend(["--size-chart-xlsx", str(files.size_chart_path)])
     stdout = io.StringIO()
     stderr = io.StringIO()
     with redirect_stdout(stdout), redirect_stderr(stderr):

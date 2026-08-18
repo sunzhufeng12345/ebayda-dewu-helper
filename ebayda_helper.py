@@ -595,6 +595,9 @@ def _localize_claimed_job(job: ClaimedJob, api_origin: str) -> ClaimedJob:
         product_json_url=localize(job.product_json_url),
         images_zip_url=localize(job.images_zip_url),
         event_url=localize(job.event_url),
+        size_chart_url=(
+            localize(job.size_chart_url) if job.size_chart_url else None
+        ),
     )
 
 

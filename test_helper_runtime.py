@@ -189,6 +189,29 @@ class ClaimedJobTests(unittest.TestCase):
             ):
                 helper_runtime.ClaimedJob.from_payload(valid_payload(**updates))
 
+    def test_size_chart_url_is_optional_and_validated(self) -> None:
+        job = helper_runtime.ClaimedJob.from_payload(valid_payload())
+        self.assertIsNone(job.size_chart_url)
+
+        job = helper_runtime.ClaimedJob.from_payload(
+            valid_payload(
+                size_chart_url=(
+                    "https://www.ebayda.com/api/automation/jobs/job_1/size-chart"
+                )
+            )
+        )
+        self.assertEqual(
+            job.size_chart_url,
+            "https://www.ebayda.com/api/automation/jobs/job_1/size-chart",
+        )
+
+        with self.assertRaises(helper_runtime.TaskExecutionError):
+            helper_runtime.ClaimedJob.from_payload(
+                valid_payload(
+                    size_chart_url="https://evil.example/api/automation/jobs/job_1/size-chart"
+                )
+            )
+
 
 class DownloadTests(unittest.TestCase):
     def test_download_uses_job_token_and_atomic_fixed_filenames(self) -> None:
@@ -218,6 +241,52 @@ class DownloadTests(unittest.TestCase):
             headers = {name.casefold(): value for name, value in request.header_items()}
             self.assertEqual(headers["authorization"], "JobToken abcdefghijklmnop")
             self.assertEqual(timeout, helper_runtime.DOWNLOAD_TIMEOUT_SECONDS)
+
+    def test_size_chart_xlsx_is_downloaded_when_url_present(self) -> None:
+        job = helper_runtime.ClaimedJob.from_payload(
+            valid_payload(
+                size_chart_url=(
+                    "https://www.ebayda.com/api/automation/jobs/job_1/size-chart"
+                )
+            )
+        )
+        opener = _DownloadOpener(
+            {
+                job.product_json_url: _DownloadResponse(b'{"data": {}}'),
+                job.images_zip_url: _DownloadResponse(b"PK\x03\x04zip"),
+                job.size_chart_url: _DownloadResponse(b"PK\x03\x04xlsx"),
+            }
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            files = helper_runtime.prepare_job_files(
+                job,
+                Path(directory),
+                open_url=opener,
+            )
+
+            self.assertIsNotNone(files.size_chart_path)
+            self.assertEqual(files.size_chart_path.name, "size_chart.xlsx")
+            self.assertEqual(files.size_chart_path.read_bytes(), b"PK\x03\x04xlsx")
+
+    def test_size_chart_download_is_skipped_when_url_absent(self) -> None:
+        job = helper_runtime.ClaimedJob.from_payload(valid_payload())
+        opener = _DownloadOpener(
+            {
+                job.product_json_url: _DownloadResponse(b'{"data": {}}'),
+                job.images_zip_url: _DownloadResponse(b"PK\x03\x04zip"),
+            }
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            files = helper_runtime.prepare_job_files(
+                job,
+                Path(directory),
+                open_url=opener,
+            )
+
+            self.assertIsNone(files.size_chart_path)
+            self.assertEqual(len(opener.requests), 2)
 
     def test_declared_oversized_download_is_rejected(self) -> None:
         job = helper_runtime.ClaimedJob.from_payload(valid_payload())
@@ -614,6 +683,24 @@ class AutomationRunnerTests(unittest.TestCase):
             ],
         )
         self.assertNotIn("--no-save", calls[0])
+
+    def test_runner_passes_size_chart_xlsx_when_present(self) -> None:
+        files = helper_runtime.TaskFiles(
+            json_path=Path("job/product.json"),
+            images_path=Path("job/images.zip"),
+            work_dir=Path("job/work"),
+            size_chart_path=Path("job/size_chart.xlsx"),
+        )
+        calls: list[list[str]] = []
+
+        helper_runtime.run_automation(
+            files,
+            17321,
+            runner=lambda argv: calls.append(list(argv)) or 0,
+        )
+
+        self.assertIn("--size-chart-xlsx", calls[0])
+        self.assertIn(str(files.size_chart_path), calls[0])
 
     def test_runner_output_is_suppressed(self) -> None:
         files = helper_runtime.TaskFiles(

@@ -46,8 +46,9 @@
            缺失即中止，非必填字段失败仅记警告继续。
         e. 颜色：核对页面已有前缀，补空行、删多余空行，绝不覆盖
            来源之外的非空颜色。
-        f. 尺码表弹窗：按 SIZE_CHART 配置测量列，对齐行数后逐行
-           填写尺码名和测量值，保存后勾选商品实际销售尺码。
+        f. 尺码表弹窗：优先导入后端模板 xlsx（--size-chart-xlsx），
+           导入失败回退按 SIZE_CHART 配置测量列逐格填写；保存后
+           勾选商品实际销售尺码。
         g. 上传尺码推荐、试穿报告 Excel（若配置了辅助文件）。
         h. SKU 表：按“颜色×尺码”逐页匹配来源记录，逐行填写
            编码/辅助编码/出价类型/出价/库存/包装长宽高重量。
@@ -305,6 +306,8 @@ class RunSettings:
     size_chart: Mapping[str, Mapping[str, str]] = field(default_factory=lambda: SIZE_CHART)
     size_recommendation_file: Path | None = None
     try_on_report_file: Path | None = None
+    # 后端按得物官方模板生成的尺码表 xlsx；提供时优先弹窗导入，失败回退逐格填写。
+    size_chart_xlsx: Path | None = None
 
 
 @dataclass
@@ -716,6 +719,12 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="跳过尺码表，仅用于暂不确定尺码表逻辑时继续调试后续步骤",
     )
+    parser.add_argument(
+        "--size-chart-xlsx",
+        type=Path,
+        default=None,
+        help="后端生成的得物模板尺码表 xlsx；提供时优先走弹窗导入而非逐格填写",
+    )
     parser.add_argument("--timeout", type=float, default=12.0, help="普通页面操作超时秒数")
     return parser.parse_args(argv)
 
@@ -1065,10 +1074,23 @@ class DewuAutomation:
             raise AutomationError(f"颜色回显不一致：期望 {self.product.colors}，实际 {values}")
 
     def _fill_sizes(self) -> None:
-        # 尺码表是一个独立弹窗/抽屉：先取得或打开弹窗，再同步列配置、行数和每一行的尺码。
-        # 尺码名称来自来源 SKU，测量值只使用显式配置的 SIZE_CHART，不做推测。
+        # 尺码表是一个独立弹窗/抽屉。优先走“导入”上传后端模板 xlsx：
+        # 测量值以选品中心数据为准，且完全绕开列复选框（不同类目默认列不同，
+        # 取消勾选在部分页面版本会点击落空）。导入失败再回退到列配置 + 逐格填写。
         modal = self._open_size_modal()
 
+        if getattr(self.settings, "size_chart_xlsx", None) is not None:
+            try:
+                self._import_size_chart(modal, self.settings.size_chart_xlsx)
+            except AutomationError as error:
+                self.result.warnings.append(f"尺码表 Excel 导入失败，已回退逐格填写：{error}")
+            else:
+                self._confirm_size_modal(self._locate_size_modal() or modal)
+                self._select_product_sizes()
+                self._wait_until(lambda: self._sku_variant_rows_present())
+                return
+
+        # 回退路径：尺码名称来自来源 SKU，测量值只使用显式配置的 SIZE_CHART，不做推测。
         # 只请求配置中真正出现过的测量列，并用 dict.fromkeys 保持首次出现顺序且去重。
         requested_parameters = tuple(
             dict.fromkeys(
@@ -1182,6 +1204,13 @@ class DewuAutomation:
             )
 
         # 点击确定后必须等待弹窗真正消失，并进一步等待销售规格行生成。
+        self._confirm_size_modal(modal)
+
+        self._select_product_sizes()
+        self._wait_until(lambda: self._sku_variant_rows_present())
+
+    def _confirm_size_modal(self, modal: Any) -> None:
+        # 导入路径与逐格填写共用：点确定、等弹窗消失；失败时读取弹窗内错误提示便于定位。
         confirm = self._find_visible(
             ".//button[normalize-space(.)='确 定' or normalize-space(.)='确定']",
             "尺码表确定按钮",
@@ -1205,8 +1234,106 @@ class DewuAutomation:
                 detail += "；来源 JSON 没有尺码测量值，请在 main.py 的 SIZE_CHART 中补充真实数据"
             raise AutomationError(f"尺码表保存失败：{detail}")
 
-        self._select_product_sizes()
-        self._wait_until(lambda: self._sku_variant_rows_present())
+    def _import_size_chart(self, modal: Any, xlsx_path: Path) -> None:
+        # 得物尺码弹窗自带“导入”入口，接受官方模板 xlsx；后端文件即按该模板生成。
+        # 上传成功后页面异步解析并重建表格，以第一列出现全部来源尺码为完成信号。
+        upload_input = self._size_import_input(modal)
+        # Chrome 会在处理 change 事件后清空 file input 的 value，
+        # 因此监听事件本身而不是读取 input.value（与辅助表上传一致）。
+        upload_input.run_js(
+            """
+            this.setAttribute('data-dewu-upload-seen', '0');
+            this.addEventListener(
+                'change',
+                () => this.setAttribute('data-dewu-upload-seen', '1'),
+                {once: true}
+            );
+            """
+        )
+        upload_input.input(str(xlsx_path))
+        self._wait_until(
+            lambda: upload_input.attr("data-dewu-upload-seen") == "1",
+            timeout=self.settings.upload_timeout,
+            message="等待尺码表文件选择事件超时",
+        )
+
+        def imported_sizes_ready() -> list[str] | None:
+            current_modal = self._locate_size_modal() or modal
+            try:
+                table = self._size_table(current_modal)
+            except AutomationError:
+                return None
+            sizes: list[str] = []
+            for row in self._size_rows(table):
+                inputs = [
+                    item for item in row.eles("xpath:.//input") if _is_displayed(item)
+                ]
+                value = _element_value(inputs[0]) if inputs else ""
+                sizes.append(re.sub(r"\s+", "", value))
+            if not any(sizes):
+                return None
+            return sizes
+
+        imported = self._wait_until(
+            imported_sizes_ready,
+            timeout=self.settings.upload_timeout,
+            message="尺码表导入后没有出现尺码行",
+        )
+        missing = [
+            size
+            for size in self.product.sizes
+            if re.sub(r"\s+", "", size) not in imported
+        ]
+        if missing:
+            raise AutomationError(
+                f"尺码表导入结果缺少来源尺码：{missing}；实际导入：{imported}"
+            )
+
+    def _size_import_input(self, modal: Any) -> Any:
+        # “导入”入口有多个页面版本：常驻隐藏 file input、独立按钮或链接。
+        # 先尝试不点击直接找 file input；找不到再点“导入”触发后轮询。
+        try:
+            return self._find_any(
+                ".//input[@type='file']",
+                "尺码表文件输入框",
+                scope=modal,
+            )
+        except AutomationError:
+            pass
+
+        trigger_xpaths = (
+            ".//button[contains(normalize-space(.),'导入')"
+            " and not(contains(normalize-space(.),'下载'))]",
+            ".//a[contains(normalize-space(.),'导入')"
+            " and not(contains(normalize-space(.),'下载'))]",
+            ".//*[contains(normalize-space(.),'导入')]"
+            "[not(contains(normalize-space(.),'下载'))]",
+        )
+        trigger = None
+        for xpath in trigger_xpaths:
+            elements = self._visible_elements(xpath, scope=modal)
+            if elements:
+                trigger = elements[0]
+                break
+        if trigger is None:
+            raise AutomationError("尺码表弹窗中找不到“导入”入口")
+        self._click(trigger)
+
+        def locate() -> Any | None:
+            current_modal = self._locate_size_modal() or modal
+            try:
+                return self._find_any(
+                    ".//input[@type='file']",
+                    "尺码表文件输入框",
+                    scope=current_modal,
+                )
+            except AutomationError:
+                return None
+
+        return self._wait_until(
+            locate,
+            message="点击尺码表“导入”后没有出现文件选择控件",
+        )
 
     def _upload_size_guidance(self) -> None:
         # 两个辅助表使用同一套弹窗流程；文件路径已在连接浏览器前完成解析和存在性校验。
@@ -2828,10 +2955,11 @@ class DewuAutomation:
     def _set_modal_checkbox(self, modal: Any, label: str, checked: bool) -> None:
         # 只有当前状态与目标状态不一致时才点击，避免重复点击导致复选框反选。
         literal = _xpath_literal(label)
-        labels = self._visible_elements(
-            f".//label[normalize-space(.)={literal} or .//*[normalize-space(.)={literal}]]",
-            scope=modal,
+        label_xpath = (
+            f".//label[normalize-space(.)={literal}"
+            f" or .//*[normalize-space(.)={literal}]]"
         )
+        labels = self._visible_elements(label_xpath, scope=modal)
         if not labels:
             if label == "尺码":
                 raise AutomationError("尺码表弹窗中找不到“尺码”复选框")
@@ -2843,10 +2971,7 @@ class DewuAutomation:
 
             # 点击后重新获取节点，因为前端可能替换整个 label/checkbox 元素。
             def has_expected_state() -> bool:
-                current_labels = self._visible_elements(
-                    f".//label[normalize-space(.)={literal} or .//*[normalize-space(.)={literal}]]",
-                    scope=modal,
-                )
+                current_labels = self._visible_elements(label_xpath, scope=modal)
                 if not current_labels:
                     return False
                 current_checkbox = current_labels[0].ele(
@@ -2855,6 +2980,19 @@ class DewuAutomation:
                 )
                 return bool(current_checkbox and current_checkbox.states.is_checked) == checked
 
+            try:
+                self._wait_until(has_expected_state, timeout=2)
+                return
+            except AutomationError:
+                pass
+            # 抽屉内复选框的坐标点击可能落空（与表单 radio 同类问题）：
+            # 重新定位元素后改用原生 click 直接触发受控组件事件。
+            retry_labels = self._visible_elements(label_xpath, scope=modal)
+            if retry_labels:
+                try:
+                    retry_labels[0].run_js("this.click();")
+                except Exception:
+                    pass
             self._wait_until(
                 has_expected_state,
                 message=f"尺码表复选框状态没有更新：{label}",
@@ -3354,6 +3492,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             timeout=args.timeout,
             size_recommendation_file=size_recommendation_file,
             try_on_report_file=try_on_report_file,
+            size_chart_xlsx=(
+                args.size_chart_xlsx.resolve()
+                if args.size_chart_xlsx is not None and not args.skip_size_chart
+                else None
+            ),
         )
 
         # 无 --execute 时只输出摘要，便于先检查标题、SKU、图片数量和警告。
@@ -3493,6 +3636,12 @@ def _validate_runtime_inputs(args: argparse.Namespace) -> None:
         raise ProductDataError("price-proof-source 不能为空")
     if not str(args.release_proof_source).strip():
         raise ProductDataError("release-proof-source 不能为空")
+    if (
+        args.size_chart_xlsx is not None
+        and not args.skip_size_chart
+        and not args.size_chart_xlsx.is_file()
+    ):
+        raise ProductDataError(f"尺码表 xlsx 不存在：{args.size_chart_xlsx}")
 
 def _validate_media_for_page(product: ProductData, media: MediaFiles) -> None:
     # models.py 只负责找到文件；这里按得物页面限制检查格式、数量和单文件大小。

@@ -1310,6 +1310,139 @@ class SizeChartRowTests(unittest.TestCase):
         self.assertEqual([item.value for item in inputs], ["CODE", "AUX", "", "399", "1000", "42", "38", "5", "0.8"])
 
 
+class SizeChartImportTests(unittest.TestCase):
+    def _automation(self, xlsx: object) -> main.DewuAutomation:
+        automation = object.__new__(main.DewuAutomation)
+        automation.product = SimpleNamespace(sizes=("M",))
+        automation.settings = SimpleNamespace(size_chart={"M": {}}, size_chart_xlsx=xlsx)
+        automation.result = main.RunResult()
+        return automation
+
+    def test_fill_sizes_prefers_xlsx_import_over_manual_columns(self) -> None:
+        modal = object()
+        calls: list[tuple[object, ...]] = []
+        automation = self._automation(Path("size.xlsx"))
+        automation._open_size_modal = lambda: modal
+        automation._import_size_chart = (
+            lambda _modal, path: calls.append(("import", path))
+        )
+        automation._locate_size_modal = lambda: modal
+        automation._confirm_size_modal = lambda _modal: calls.append(("confirm",))
+        automation._select_product_sizes = lambda: calls.append(("select",))
+        automation._sku_variant_rows_present = lambda: True
+        automation._wait_until = lambda predicate, **_kwargs: predicate()
+        automation._configure_size_columns = lambda *_args: calls.append(("manual",))
+
+        automation._fill_sizes()
+
+        self.assertEqual([call[0] for call in calls], ["import", "confirm", "select"])
+        self.assertEqual(calls[0][1], Path("size.xlsx"))
+
+    def test_fill_sizes_falls_back_to_manual_when_import_fails(self) -> None:
+        modal = object()
+        manual_calls: list[bool] = []
+        automation = self._automation(Path("size.xlsx"))
+        automation._open_size_modal = lambda: modal
+
+        def import_fails(_modal: object, _path: object) -> None:
+            raise main.AutomationError("尺码表弹窗中找不到“导入”入口")
+
+        automation._import_size_chart = import_fails
+        automation._configure_size_columns = lambda *_args: manual_calls.append(True)
+        automation._locate_size_modal = lambda: modal
+        automation._size_table = lambda _modal: object()
+        automation._size_rows = lambda _table: [_FakeSizeDataRow([_FocusRequiredInput()])]
+        automation._ensure_size_rows = lambda *_args: None
+        automation._visible_elements = lambda xpath, **_kwargs: (
+            [_FakeHeader("尺码")] if "thead" in xpath else []
+        )
+        automation._find_visible = lambda *_args, **_kwargs: object()
+        automation._click = lambda *_args, **_kwargs: None
+        automation._wait_until = lambda predicate, **_kwargs: (
+            predicate() if callable(predicate) else True
+        )
+        automation._select_product_sizes = lambda: None
+
+        automation._fill_sizes()
+
+        self.assertEqual(manual_calls, [True])
+        self.assertTrue(
+            any("导入失败" in warning for warning in automation.result.warnings)
+        )
+
+    def test_fill_sizes_without_xlsx_keeps_manual_only_flow(self) -> None:
+        # 旧调用方式（helper 未传 --size-chart-xlsx）不应触发导入分支。
+        modal = object()
+        import_calls: list[bool] = []
+        automation = self._automation(None)
+        automation._open_size_modal = lambda: modal
+        automation._import_size_chart = lambda *_args: import_calls.append(True)
+        automation._configure_size_columns = lambda *_args: None
+        automation._locate_size_modal = lambda: modal
+        automation._size_table = lambda _modal: object()
+        automation._size_rows = lambda _table: [_FakeSizeDataRow([_FocusRequiredInput()])]
+        automation._ensure_size_rows = lambda *_args: None
+        automation._visible_elements = lambda xpath, **_kwargs: (
+            [_FakeHeader("尺码")] if "thead" in xpath else []
+        )
+        automation._find_visible = lambda *_args, **_kwargs: object()
+        automation._click = lambda *_args, **_kwargs: None
+        automation._wait_until = lambda predicate, **_kwargs: (
+            predicate() if callable(predicate) else True
+        )
+        automation._select_product_sizes = lambda: None
+
+        automation._fill_sizes()
+
+        self.assertEqual(import_calls, [])
+
+
+class ModalCheckboxRetryTests(unittest.TestCase):
+    def test_modal_checkbox_js_retry_after_pointer_click_miss(self) -> None:
+        # 抽屉内复选框坐标点击落空（状态不变）时，改用原生 click 触发受控组件。
+        class JsLabel(_FakeCheckboxLabel):
+            def __init__(self) -> None:
+                super().__init__("肩宽(cm)", True)
+                self.js_clicks = 0
+
+            def run_js(self, _script: str) -> None:
+                self.js_clicks += 1
+                self.checkbox.states.is_checked = (
+                    not self.checkbox.states.is_checked
+                )
+
+        label = JsLabel()
+        automation = object.__new__(main.DewuAutomation)
+        automation._visible_elements = lambda _xpath, **_kwargs: [label]
+        automation._click = lambda _element: None
+
+        def wait(predicate, **kwargs):
+            if kwargs.get("timeout") == 2:
+                raise main.AutomationError("短等待超时")
+            self.assertTrue(predicate())
+            return True
+
+        automation._wait_until = wait
+
+        automation._set_modal_checkbox(object(), "肩宽(cm)", False)
+
+        self.assertEqual(label.js_clicks, 1)
+        self.assertFalse(label.checkbox.states.is_checked)
+
+    def test_modal_checkbox_pointer_click_success_skips_js_retry(self) -> None:
+        label = _FakeCheckboxLabel("袖长(cm)", False)
+        automation = object.__new__(main.DewuAutomation)
+        automation._visible_elements = lambda _xpath, **_kwargs: [label]
+        automation._click = lambda _element: setattr(
+            label.checkbox.states, "is_checked", True
+        )
+        automation._wait_until = lambda predicate, **_kwargs: predicate()
+
+        automation._set_modal_checkbox(object(), "袖长(cm)", True)
+
+        self.assertTrue(label.checkbox.states.is_checked)
+
+
 class ExternalLinkTests(unittest.TestCase):
     def test_external_link_blurs_after_writing_fixed_no_value(self) -> None:
         automation = object.__new__(main.DewuAutomation)

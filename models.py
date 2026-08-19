@@ -363,7 +363,7 @@ def extract_and_resolve_media(
         if not color_refs:
             raise ProductDataError(f"颜色“{color}”没有得物平铺图")
         files = tuple(
-            _resolve_reference(extraction_root, ref, "颜色图_得物平铺图")
+            _resolve_reference(extraction_root, ref, "颜色图_得物平铺图", color=color)
             for ref in color_refs
         )
         if len(files) < 2:
@@ -1008,7 +1008,9 @@ def _safe_work_directory(work_root: Path, product_code: str) -> Path:
     return target
 
 
-def _resolve_reference(root: Path, reference: str, folder_name: str) -> Path:
+def _resolve_reference(
+    root: Path, reference: str, folder_name: str, *, color: str | None = None
+) -> Path:
     # 来源可能只保存文件名或带有原始目录，因此按 basename 搜索，并要求命中对应图片区目录。
     # 只能唯一命中；零个和多个都报错，避免上传错误图片。
     basename = PurePosixPath(reference).name
@@ -1017,6 +1019,22 @@ def _resolve_reference(root: Path, reference: str, folder_name: str) -> Path:
         for path in root.rglob(basename)
         if path.is_file() and folder_name in path.parts
     ]
+    # 颜色图按颜色名二次消歧：后端 ZIP 把颜色图放在 folder/<颜色>/<文件> 子目录下，
+    # 跨颜色同名文件需用颜色名过滤到唯一命中。color 为空字符串时也作为路径段过滤。
+    if color is not None and candidates:
+        color_value = color.strip()
+        if color_value:
+            filtered = [p for p in candidates if color_value in p.parts]
+            if len(filtered) == 1:
+                return filtered[0]
+            if filtered:
+                # 颜色过滤后仍不唯一（同名同色重复），按严格唯一性报错
+                raise ProductDataError(
+                    f"ZIP 中图片不唯一：目录={folder_name}，颜色={color_value}，"
+                    f"文件={basename}，匹配={len(filtered)}"
+                )
+            # 颜色过滤后 0 命中：可能是旧 ZIP 没有颜色子目录，回退到原 candidates
+            # 让下面的唯一性校验处理（旧 ZIP 跨颜色无同名时 candidates 长度为 1）。
     if len(candidates) == 1:
         return candidates[0]
     if not candidates:

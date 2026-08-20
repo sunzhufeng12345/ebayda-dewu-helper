@@ -491,6 +491,20 @@ class AttributeFallbackDegradationTests(unittest.TestCase):
             any("改用兜底值" in warning for warning in automation.result.warnings)
         )
 
+    def test_missing_sleeve_uses_long_sleeve_fallback(self) -> None:
+        # 来源与标题都没有袖长时：袖长是必填属性，直接用兜底值"长袖"并记 warning。
+        automation, calls = self._automation({"领型": ("圆领",)})
+
+        automation._fill_attributes()
+
+        self.assertIn(("袖长", ("长袖",)), calls)
+        self.assertTrue(
+            any(
+                "来源缺少必填属性“袖长”，已用兜底值：长袖" in warning
+                for warning in automation.result.warnings
+            )
+        )
+
 
 class SkuInputOptimizationTests(unittest.TestCase):
     def test_fill_sku_row_batches_non_select_inputs(self) -> None:

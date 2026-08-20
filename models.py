@@ -601,28 +601,11 @@ def _category_segment(source_name: str, source_category: str) -> str:
 
 
 # 来源"材质"常见写法是「成分 - 百分比」（如 棉 - 30、涤纶(聚酯纤维) - 67、其他 - 3），
-# 而得物面料下拉只提供干净的标准选项。这里做三层归一：
+# 而得物面料下拉只提供干净的标准选项。这里只做两步清洗，不做同义词改写：
 # 1. 剥掉百分占比后缀，并把顿号/逗号连写的多成分拆开；
-# 2. 把常见同义写法映射为得物标准选项名；
-# 3. 丢弃「其他/其它」这类兜底词（得物没有对应选项，必填字段会被卡死）。
-# 映射表之外的原值原样保留，仍选不中时由页面步骤报"下拉选项不存在：<值>"，便于定位新词。
-_FABRIC_ALIASES = {
-    "涤纶": "聚酯纤维",
-    "涤纶(聚酯纤维)": "聚酯纤维",
-    "涤纶（聚酯纤维）": "聚酯纤维",
-    "聚脂纤维": "聚酯纤维",
-    "纯棉": "棉",
-    "全棉": "棉",
-    "棉100%": "棉",
-    "尼龙": "锦纶",
-    "尼龙(锦纶)": "锦纶",
-    "弹性纤维": "氨纶",
-    "弹性纤维(氨纶)": "氨纶",
-    "氨纶(弹性纤维)": "氨纶",
-    "莱卡": "氨纶",
-    "人造纤维": "粘纤",
-    "粘胶纤维": "粘纤",
-}
+# 2. 丢弃「其他/其它」这类兜底词（得物没有对应选项，必填字段会被卡死）。
+# 来源值默认是准确的（如「涤纶(聚酯纤维)」本身就是得物下拉选项原文），
+# 原值原样保留直接去选；确实选不中时由 main.py 的必填兜底值保流程。
 _FABRIC_PERCENT_SUFFIX = re.compile(r"\s*[-−–—]\s*(\d+(?:\.\d+)?)\s*%?\s*$")
 # 来源兜底成分词：得物面料下拉没有对应选项，保留会导致必填字段选不中。
 _FABRIC_FILLER_NAMES = ("其他", "其它")
@@ -640,7 +623,6 @@ def _normalize_fabric_values(
             name = _FABRIC_PERCENT_SUFFIX.sub("", part.strip())
             if not name:
                 continue
-            name = _FABRIC_ALIASES.get(name, name)
             if name not in normalized:
                 normalized.append(name)
     # 只要还有具体成分就丢掉兜底词；来源只有"其他"时原样保留，
@@ -668,12 +650,13 @@ def _build_dewu_attributes(
 
     copy("领型")
     copy("风格")
+    copy("袖长")
     copy("穿着方式", "衣门襟")
     fabric_values = _normalize_fabric_values(grouped.get("材质"))
     if fabric_values:
         attributes["面料"] = fabric_values
 
-    # 材质含量是页面文本字段：把每个成分的「归一名 + 占比」逐项拼接，不丢占比信息。
+    # 材质含量是页面文本字段：把每个成分的「成分名 + 占比」逐项拼接，不丢占比信息。
     material_rows = _find_attribute_rows(rows, "caizhi", "材质")
     composition_parts: list[str] = []
     for row in material_rows:
@@ -684,7 +667,6 @@ def _build_dewu_attributes(
             name = _FABRIC_PERCENT_SUFFIX.sub("", part).strip()
             if not name:
                 continue
-            name = _FABRIC_ALIASES.get(name, name)
             percentage = match.group(1) if match else row_percentage
             text = f"{name}{percentage}%" if percentage not in (None, "") else name
             if text not in composition_parts:
@@ -705,13 +687,15 @@ def _build_dewu_attributes(
     # 上市时间已在 _release_season 中归一化为平台可接受的季节值。
     attributes["适用季节"] = (release_season,)
 
-    # 以下字段来源通常没有独立标准值，因此按商品标题中的明确关键词推导。
-    if "长袖" in source_name:
-        attributes["袖长"] = ("长袖",)
-        inferred.append("袖长")
-    elif "短袖" in source_name:
-        attributes["袖长"] = ("短袖",)
-        inferred.append("袖长")
+    # 袖长优先取来源属性（与材质同级的 attributeName="袖长"，值如"长袖/短袖"）；
+    # 来源没有时才按商品标题关键词推导，两者都没有由 main.py 必填兜底"长袖"。
+    if "袖长" not in attributes:
+        if "长袖" in source_name:
+            attributes["袖长"] = ("长袖",)
+            inferred.append("袖长")
+        elif "短袖" in source_name:
+            attributes["袖长"] = ("短袖",)
+            inferred.append("袖长")
 
     # 商品名中的明确领型词可以作为页面必填属性的可靠来源；含糊时继续留给人工填写。
     for collar in ("圆领", "V领", "高领", "立领", "翻领", "连帽"):

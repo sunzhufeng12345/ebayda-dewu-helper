@@ -515,10 +515,42 @@ def _trusted_resource_url(value: object, job_id: str, resource: str) -> str:
     return url
 
 
+def _api_origin_from_file() -> str:
+    """读取安装目录下 api-origin.txt（安装向导写入的自建服务器地址）。
+
+    文件由安装向导在安装时生成，一行一个完整源地址，例如
+    http://101.34.90.101:10112；文件缺失或为空表示使用官方地址。
+    """
+    if getattr(sys, "frozen", False):
+        base = Path(sys.executable).resolve().parent
+    else:
+        base = Path(__file__).resolve().parent
+    try:
+        value = (base / "api-origin.txt").read_text(encoding="utf-8-sig")
+    except OSError:
+        return ""
+    return value.strip().rstrip("/")
+
+
+def _configured_origin_source() -> tuple[str, bool]:
+    """返回 (生效的 API 源, 该值是否来自安装配置文件)。
+
+    环境变量 EBAYDA_API_ORIGIN 优先（便于临时调试覆盖），未设置时取
+    安装时写入的 api-origin.txt，两者都没有则返回空串（调用方回退官方源）。
+    来自配置文件的值视为操作员在安装向导里的显式选择，等同打开
+    EBAYDA_ALLOW_STAGING_API 开关。
+    """
+    file_origin = _api_origin_from_file()
+    env_origin = os.environ.get("EBAYDA_API_ORIGIN", "").rstrip("/")
+    if env_origin:
+        return env_origin, env_origin == file_origin
+    return file_origin, bool(file_origin)
+
+
 def _configured_download_origins() -> set[tuple[str, str | None, int | None]]:
     origins = set(TRUSTED_DOWNLOAD_ORIGINS)
-    configured = os.environ.get("EBAYDA_API_ORIGIN", "").rstrip("/")
-    if not configured:
+    configured, from_install_config = _configured_origin_source()
+    if not configured or configured == "https://www.ebayda.com":
         return origins
     try:
         parsed = urlparse(configured)
@@ -535,13 +567,14 @@ def _configured_download_origins() -> set[tuple[str, str | None, int | None]]:
     ):
         return origins
     scheme = parsed.scheme.casefold()
-    if scheme == "https" and (
-        configured == "https://www.ebayda.com"
+    if scheme in ("http", "https") and (
+        from_install_config
         or os.environ.get("EBAYDA_ALLOW_STAGING_API") == "1"
     ):
         origins.add((scheme, parsed.hostname, port))
-        if port in (None, 443):
-            origins.add((scheme, parsed.hostname, 443 if port is None else None))
+        default_port = 443 if scheme == "https" else 80
+        if port in (None, default_port):
+            origins.add((scheme, parsed.hostname, default_port if port is None else None))
     elif (
         scheme == "http"
         and parsed.hostname == "127.0.0.1"
@@ -588,7 +621,9 @@ def _download(
     try:
         with open_url(request, timeout=DOWNLOAD_TIMEOUT_SECONDS) as response:
             if getattr(response, "status", 200) != 200:
-                raise TaskExecutionError(f"下载任务文件失败：HTTP {response.status}")
+                raise TaskExecutionError(
+                    _download_http_error(response, response.status)
+                )
             _validate_content_length(response.headers.get("Content-Length"), maximum_bytes)
             total = 0
             with partial.open("wb") as output:
@@ -606,10 +641,32 @@ def _download(
         raise
     except HTTPError as error:
         partial.unlink(missing_ok=True)
-        raise TaskExecutionError(f"下载任务文件失败：HTTP {error.code}") from None
+        raise TaskExecutionError(_download_http_error(error, error.code)) from None
     except (URLError, TimeoutError, OSError):
         partial.unlink(missing_ok=True)
         raise TaskExecutionError("下载任务文件失败：网络或本地文件错误") from None
+
+
+def _download_http_error(response: Any, code: int) -> str:
+    detail = _server_error_detail(response)
+    if detail:
+        return f"下载任务文件失败：HTTP {code} {detail}"
+    return f"下载任务文件失败：HTTP {code}"
+
+
+def _server_error_detail(response: Any) -> str | None:
+    try:
+        payload = response.read(4096)
+        decoded = json.loads(payload.decode("utf-8", "replace"))
+    except (AttributeError, ValueError, OSError):
+        return None
+    if not isinstance(decoded, dict):
+        return None
+    message = decoded.get("message")
+    if not isinstance(message, str):
+        return None
+    message = message.strip()
+    return message[:200] or None
 
 
 def _validate_content_length(value: object, maximum_bytes: int) -> None:

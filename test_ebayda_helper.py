@@ -351,6 +351,40 @@ class ApiOriginTests(unittest.TestCase):
                 "https://101.34.90.101:8443",
             )
 
+    def test_install_config_http_ip_origin_is_allowed(self) -> None:
+        with patch(
+            "helper_runtime._api_origin_from_file",
+            return_value="http://101.34.90.101:10112",
+        ), patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(
+                ebayda_helper._configured_api_origin(),
+                "http://101.34.90.101:10112",
+            )
+
+    def test_install_config_origin_without_scheme_is_rejected(self) -> None:
+        with patch(
+            "helper_runtime._api_origin_from_file",
+            return_value="101.34.90.101:10112",
+        ), patch.dict(os.environ, {}, clear=True), self.assertRaisesRegex(
+            ebayda_helper.HelperError,
+            "自建 API 地址必须是",
+        ):
+            ebayda_helper._configured_api_origin()
+
+    def test_env_origin_overrides_install_config(self) -> None:
+        with patch(
+            "helper_runtime._api_origin_from_file",
+            return_value="http://101.34.90.101:10112",
+        ), patch.dict(
+            os.environ,
+            {"EBAYDA_API_ORIGIN": "https://staging.bookthink.cloud"},
+            clear=True,
+        ), self.assertRaisesRegex(
+            ebayda_helper.HelperError,
+            "^staging API 地址必须显式启用 EBAYDA_ALLOW_STAGING_API=1$",
+        ):
+            ebayda_helper._configured_api_origin()
+
     def test_local_api_origin_rewrites_claimed_resource_paths_only(self) -> None:
         payload = {
             "job_id": "job_1",
@@ -1339,14 +1373,16 @@ class EventTests(unittest.TestCase):
         self.assertEqual(result[0], "paused_for_user")
         self.assertEqual(events[-1], ("paused_for_user", "请先登录得物商家后台"))
 
-    def test_pre_browser_failure_reports_failed(self) -> None:
-        events: list[str] = []
+    def test_pre_browser_failure_reports_failed_with_reason(self) -> None:
+        events: list[tuple[str, str | None]] = []
+
+        def post_event(_job: object, status: str, **kwargs: object) -> None:
+            events.append((status, kwargs.get("message")))
+
         with patch.object(
             ebayda_helper, "application_root", return_value=Path("app")
         ), patch.object(
-            ebayda_helper,
-            "post_event",
-            side_effect=lambda _job, status: events.append(status),
+            ebayda_helper, "post_event", side_effect=post_event
         ), patch.object(
             ebayda_helper,
             "prepare_job_files",
@@ -1356,7 +1392,7 @@ class EventTests(unittest.TestCase):
                 ebayda_helper.execute_claimed_job(self.payload)
 
         chrome.assert_not_called()
-        self.assertEqual(events, ["preparing", "failed"])
+        self.assertEqual(events, [("preparing", None), ("failed", "下载失败")])
 
     def test_final_event_failure_does_not_change_saved_result(self) -> None:
         files = helper_runtime.TaskFiles(Path("product.json"), Path("images.zip"), Path("work"))

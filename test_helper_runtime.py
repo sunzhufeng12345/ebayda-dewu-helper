@@ -138,6 +138,45 @@ class ClaimedJobTests(unittest.TestCase):
                 )
             )
 
+    def test_install_config_http_origin_payload_is_trusted(self) -> None:
+        with patch(
+            "helper_runtime._api_origin_from_file",
+            return_value="http://101.34.90.101:10112",
+        ), patch.dict(helper_runtime.os.environ, {}, clear=True):
+            job = helper_runtime.ClaimedJob.from_payload(
+                valid_payload(
+                    product_json_url=(
+                        "http://101.34.90.101:10112/api/automation/jobs/"
+                        "job_1/product-json"
+                    ),
+                    images_zip_url=(
+                        "http://101.34.90.101:10112/api/automation/jobs/"
+                        "job_1/images"
+                    ),
+                )
+            )
+
+        self.assertEqual(
+            job.product_json_url.split("/api/", 1)[0],
+            "http://101.34.90.101:10112",
+        )
+
+    def test_install_config_http_origin_does_not_trust_other_hosts(self) -> None:
+        with patch(
+            "helper_runtime._api_origin_from_file",
+            return_value="http://101.34.90.101:10112",
+        ), patch.dict(helper_runtime.os.environ, {}, clear=True), self.assertRaises(
+            helper_runtime.TaskExecutionError
+        ):
+            helper_runtime.ClaimedJob.from_payload(
+                valid_payload(
+                    product_json_url=(
+                        "http://203.0.113.9:10112/api/automation/jobs/"
+                        "job_1/product-json"
+                    )
+                )
+            )
+
     def test_urls_must_be_https_ebayda_job_resources(self) -> None:
         invalid_urls = (
             "http://www.ebayda.com/api/automation/jobs/job_1/product-json",

@@ -20,6 +20,7 @@ from urllib.request import Request
 from helper_runtime import (
     ClaimedJob,
     TaskExecutionError,
+    _configured_origin_source,
     application_root,
     cleanup_task_files,
     ensure_chrome,
@@ -67,18 +68,18 @@ class HelperError(RuntimeError):
 
 
 def _configured_api_origin() -> str:
-    origin = os.environ.get("EBAYDA_API_ORIGIN", API_ORIGIN).rstrip("/")
-    if origin == API_ORIGIN:
-        return origin
+    origin, from_install_config = _configured_origin_source()
+    if not origin or origin == API_ORIGIN:
+        return API_ORIGIN
 
-    if os.environ.get("EBAYDA_ALLOW_STAGING_API") == "1":
+    if from_install_config or os.environ.get("EBAYDA_ALLOW_STAGING_API") == "1":
         try:
             parsed = urlparse(origin)
             parsed.port
         except ValueError:
-            raise HelperError("staging API 地址必须是 https://主机[:端口]") from None
+            raise HelperError("自建 API 地址必须是 http(s)://主机[:端口]") from None
         if (
-            parsed.scheme.casefold() != "https"
+            parsed.scheme.casefold() not in ("http", "https")
             or not parsed.hostname
             or parsed.username is not None
             or parsed.password is not None
@@ -86,7 +87,7 @@ def _configured_api_origin() -> str:
             or parsed.query
             or parsed.fragment
         ):
-            raise HelperError("staging API 地址必须是 https://主机[:端口]")
+            raise HelperError("自建 API 地址必须是 http(s)://主机[:端口]")
         return origin
 
     if origin.casefold().startswith("https://"):
@@ -110,7 +111,7 @@ def _configured_api_origin() -> str:
         or parsed.query
         or parsed.fragment
     ):
-        raise HelperError("本地 API 地址必须是 http://127.0.0.1:<端口>")
+        raise HelperError("本地 API 地址必须是 http://127.0.0.1:<端口]")
     return origin
 
 
@@ -868,7 +869,7 @@ def execute_claimed_job(payload: Mapping[str, Any]) -> tuple[str, str, str]:
             automation_message = getattr(automation, "message", None)
             automation_status = getattr(automation, "status", None)
     except (HelperError, TaskExecutionError) as error:
-        _post_final_event(job, "failed", app_root=app_root)
+        _post_final_event(job, "failed", str(error), app_root=app_root)
         raise HelperError(str(error)) from None
     except Exception:
         _post_final_event(job, "failed", app_root=app_root)

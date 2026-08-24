@@ -53,35 +53,30 @@ begin
     '自建服务器请填写完整地址（例如 http://101.34.90.101:10112），' + #13#10 +
     '留空表示使用官方地址 www.ebayda.com。');
   ApiOriginPage.Add('API 地址：', False);
+  // 升级安装时回显上次填写的地址；Inno 内置跨安装记忆，无需读文件
+  ApiOriginPage.Values[0] := GetPreviousData('ApiOrigin', '');
 end;
 
-procedure CurPageChanged(CurPageID: Integer);
-var
-  Existing: String;
+procedure RegisterPreviousData(PreviousDataKey: Integer);
 begin
-  // 升级安装时回显现有配置，便于修改或清空（清空 = 回到官方地址）
-  if (CurPageID = ApiOriginPage.ID) and (ApiOriginPage.Values[0] = '') then
-  begin
-    if LoadStringFromFile(ExpandConstant('{app}\api-origin.txt'), Existing) then
-      ApiOriginPage.Values[0] := Trim(Existing);
-  end;
+  SetPreviousData(PreviousDataKey, 'ApiOrigin', Trim(ApiOriginPage.Values[0]));
 end;
 
 function NextButtonClick(CurPageID: Integer): Boolean;
 var
-  Value: String;
-  Rest: String;
+  ApiValue: String;
+  HostPart: String;
 begin
   Result := True;
   if CurPageID = ApiOriginPage.ID then
   begin
-    Value := Trim(ApiOriginPage.Values[0]);
-    if Value <> '' then
+    ApiValue := Trim(ApiOriginPage.Values[0]);
+    if ApiValue <> '' then
     begin
-      if (Pos('http://', Value) = 1) or (Pos('https://', Value) = 1) then
+      if (Pos('http://', ApiValue) = 1) or (Pos('https://', ApiValue) = 1) then
       begin
-        Rest := Copy(Value, Pos('://', Value) + 3, MaxInt);
-        if (Pos('/', Rest) > 0) or (Pos('?', Rest) > 0) or (Pos(' ', Value) > 0) then
+        HostPart := Copy(ApiValue, Pos('://', ApiValue) + 3, Length(ApiValue));
+        if (Pos('/', HostPart) > 0) or (Pos('?', HostPart) > 0) or (Pos(' ', ApiValue) > 0) then
         begin
           MsgBox('API 地址格式错误：只能是 http(s)://主机[:端口]，不能包含路径。', mbError, MB_OK);
           Result := False;
@@ -98,17 +93,19 @@ end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
 var
-  Origin: String;
+  OriginLines: TArrayOfString;
 begin
-  if CurStep = ssPostInstall then
+  // 静默安装不显示向导页，跳过写入以保留现有配置文件
+  if (CurStep = ssPostInstall) and (not WizardSilent) then
   begin
-    // 静默安装（/SILENT）不显示向导页，此时保留现有配置不动
-    if WizardSilent() then
-      exit;
-    Origin := Trim(ApiOriginPage.Values[0]);
-    if Origin <> '' then
-      SaveStringToFile(ExpandConstant('{app}\api-origin.txt'), Origin, False)
+    if Trim(ApiOriginPage.Values[0]) = '' then
+      DeleteFile(ExpandConstant('{app}\api-origin.txt'))
     else
-      DeleteFile(ExpandConstant('{app}\api-origin.txt'));
+    begin
+      SetArrayLength(OriginLines, 1);
+      OriginLines[0] := Trim(ApiOriginPage.Values[0]);
+      // UTF-8（带 BOM）写入；程序侧以 utf-8-sig 读取
+      SaveStringsToUTF8File(ExpandConstant('{app}\api-origin.txt'), OriginLines, False);
+    end;
   end;
 end;

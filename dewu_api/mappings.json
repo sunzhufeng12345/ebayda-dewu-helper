@@ -1,0 +1,1312 @@
+{
+ "_说明": "category_id/brand_id 为得物数字 id，null=待人工补全；改完无需重跑本脚本",
+ "categories": {
+  "女装>>三坑>>COSPLAY>>COSPLAY": {
+   "category_id": null
+  },
+  "女装>>三坑>>COSPLAY>>COS甲胄": {
+   "category_id": null
+  },
+  "女装>>三坑>>COSPLAY>>lolita半身裙": {
+   "category_id": null
+  },
+  "女装>>三坑>>COSPLAY>>lolita外套": {
+   "category_id": null
+  },
+  "女装>>三坑>>COSPLAY>>lolita大衣": {
+   "category_id": null
+  },
+  "女装>>三坑>>COSPLAY>>lolita衬衫": {
+   "category_id": null
+  },
+  "女装>>三坑>>COSPLAY>>lolita裤子": {
+   "category_id": null
+  },
+  "女装>>三坑>>COSPLAY>>lolita连衣裙": {
+   "category_id": null
+  },
+  "女装>>三坑>>COSPLAY>>制服": {
+   "category_id": null
+  },
+  "女装>>三坑>>COSPLAY>>汉服": {
+   "category_id": null
+  },
+  "女装>>三坑>>COSPLAY>>洋装": {
+   "category_id": null
+  },
+  "女装>>三坑>>COSPLAY>>福瑞兽装": {
+   "category_id": null
+  },
+  "女装>>三坑>>COSPLAY>>萝莉装": {
+   "category_id": null
+  },
+  "女装>>上衣>>Polo衫": {
+   "category_id": null
+  },
+  "女装>>上衣>>T恤": {
+   "category_id": null
+  },
+  "女装>>上衣>>卫衣": {
+   "category_id": null
+  },
+  "女装>>上衣>>吊带": {
+   "category_id": null
+  },
+  "女装>>上衣>>截短上衣": {
+   "category_id": null
+  },
+  "女装>>上衣>>抹胸": {
+   "category_id": null
+  },
+  "女装>>上衣>>毛衣": {
+   "category_id": null
+  },
+  "女装>>上衣>>牛仔衬衫": {
+   "category_id": null
+  },
+  "女装>>上衣>>电竞服": {
+   "category_id": null
+  },
+  "女装>>上衣>>羊绒开衫": {
+   "category_id": null
+  },
+  "女装>>上衣>>羊绒背心": {
+   "category_id": null
+  },
+  "女装>>上衣>>羊绒衫": {
+   "category_id": null
+  },
+  "女装>>上衣>>背心": {
+   "category_id": null
+  },
+  "女装>>上衣>>衬衫": {
+   "category_id": null
+  },
+  "女装>>上衣>>连体衣": {
+   "category_id": null
+  },
+  "女装>>上衣>>针织衫": {
+   "category_id": null
+  },
+  "女装>>上衣>>雪纺衫": {
+   "category_id": null
+  },
+  "女装>>中老年女装>>中老年上装": {
+   "category_id": null
+  },
+  "女装>>中老年女装>>中老年下装": {
+   "category_id": null
+  },
+  "女装>>健身服>>体操服": {
+   "category_id": null
+  },
+  "女装>>健身服>>健美操服": {
+   "category_id": null
+  },
+  "女装>>健身服>>健身套装": {
+   "category_id": null
+  },
+  "女装>>健身服>>健身衣": {
+   "category_id": null
+  },
+  "女装>>健身服>>啦啦队服": {
+   "category_id": null
+  },
+  "女装>>健身服>>瑜伽T恤": {
+   "category_id": null
+  },
+  "女装>>健身服>>瑜伽内衣": {
+   "category_id": null
+  },
+  "女装>>健身服>>瑜伽外套": {
+   "category_id": null
+  },
+  "女装>>健身服>>瑜伽套装": {
+   "category_id": null
+  },
+  "女装>>健身服>>瑜伽短裙": {
+   "category_id": null
+  },
+  "女装>>健身服>>瑜伽短裤": {
+   "category_id": null
+  },
+  "女装>>健身服>>瑜伽背心": {
+   "category_id": null
+  },
+  "女装>>健身服>>瑜伽连体衣": {
+   "category_id": null
+  },
+  "女装>>健身服>>瑜伽长裤": {
+   "category_id": null
+  },
+  "女装>>健身服>>训练防护服": {
+   "category_id": null
+  },
+  "女装>>健身服>>运动内衣": {
+   "category_id": null
+  },
+  "女装>>健身服>>运动短裤": {
+   "category_id": null
+  },
+  "女装>>健身服>>运动背心": {
+   "category_id": null
+  },
+  "女装>>健身服>>运动长裤": {
+   "category_id": null
+  },
+  "女装>>健身服>>骑行外套": {
+   "category_id": null
+  },
+  "女装>>健身服>>鲨鱼裤": {
+   "category_id": null
+  },
+  "女装>>军迷作训服>>军迷T恤": {
+   "category_id": null
+  },
+  "女装>>军迷作训服>>军迷吉利服": {
+   "category_id": null
+  },
+  "女装>>军迷作训服>>军迷大衣": {
+   "category_id": null
+  },
+  "女装>>军迷作训服>>军迷夹克": {
+   "category_id": null
+  },
+  "女装>>军迷作训服>>军迷工装裤": {
+   "category_id": null
+  },
+  "女装>>军迷作训服>>军迷服套装": {
+   "category_id": null
+  },
+  "女装>>军迷作训服>>军迷羽绒服": {
+   "category_id": null
+  },
+  "女装>>军迷作训服>>军迷背心": {
+   "category_id": null
+  },
+  "女装>>外套>>冲锋衣": {
+   "category_id": null
+  },
+  "女装>>外套>>含羽绒外套": {
+   "category_id": null
+  },
+  "女装>>外套>>大衣": {
+   "category_id": null
+  },
+  "女装>>外套>>夹克": {
+   "category_id": null
+  },
+  "女装>>外套>>截短外套": {
+   "category_id": null
+  },
+  "女装>>外套>>斗篷披风": {
+   "category_id": null
+  },
+  "女装>>外套>>棉服": {
+   "category_id": null
+  },
+  "女装>>外套>>棒球服": {
+   "category_id": null
+  },
+  "女装>>外套>>派克服": {
+   "category_id": null
+  },
+  "女装>>外套>>牛仔外套": {
+   "category_id": null
+  },
+  "女装>>外套>>皮肤衣": {
+   "category_id": null
+  },
+  "女装>>外套>>皮草": {
+   "category_id": null
+  },
+  "女装>>外套>>皮衣": {
+   "category_id": null
+  },
+  "女装>>外套>>绒感外套": {
+   "category_id": null
+  },
+  "女装>>外套>>羽绒服": {
+   "category_id": null
+  },
+  "女装>>外套>>羽绒马甲": {
+   "category_id": null
+  },
+  "女装>>外套>>西装": {
+   "category_id": null
+  },
+  "女装>>外套>>软壳衣": {
+   "category_id": null
+  },
+  "女装>>外套>>防晒服": {
+   "category_id": null
+  },
+  "女装>>外套>>风衣": {
+   "category_id": null
+  },
+  "女装>>外套>>马甲": {
+   "category_id": null
+  },
+  "女装>>女装套装>>休闲套装": {
+   "category_id": null
+  },
+  "女装>>女装套装>>冲锋衣裤套装": {
+   "category_id": null
+  },
+  "女装>>女装套装>>卫衣套装": {
+   "category_id": null
+  },
+  "女装>>女装套装>>情侣套装": {
+   "category_id": null
+  },
+  "女装>>女装套装>>职业裙装套装": {
+   "category_id": null
+  },
+  "女装>>女装套装>>职业裤装套装": {
+   "category_id": null
+  },
+  "女装>>女装套装>>衬衫套装": {
+   "category_id": null
+  },
+  "女装>>女装套装>>裙装套装": {
+   "category_id": null
+  },
+  "女装>>女装套装>>西装套装": {
+   "category_id": null
+  },
+  "女装>>女装套装>>软壳衣裤套装": {
+   "category_id": null
+  },
+  "女装>>女装套装>>闺蜜套装": {
+   "category_id": null
+  },
+  "女装>>婚纱>>旗袍>>礼服>>婚纱": {
+   "category_id": null
+  },
+  "女装>>婚纱>>旗袍>>礼服>>旗袍": {
+   "category_id": null
+  },
+  "女装>>婚纱>>旗袍>>礼服>>礼服": {
+   "category_id": null
+  },
+  "女装>>户外运动服>>军迷服": {
+   "category_id": null
+  },
+  "女装>>户外运动服>>冲浪服": {
+   "category_id": null
+  },
+  "女装>>户外运动服>>冲浪防寒衣": {
+   "category_id": null
+  },
+  "女装>>户外运动服>>抓绒衣": {
+   "category_id": null
+  },
+  "女装>>户外运动服>>抓绒裤": {
+   "category_id": null
+  },
+  "女装>>户外运动服>>滑冰服": {
+   "category_id": null
+  },
+  "女装>>户外运动服>>滑雪衣": {
+   "category_id": null
+  },
+  "女装>>户外运动服>>滑雪衣套装": {
+   "category_id": null
+  },
+  "女装>>户外运动服>>滑雪裤": {
+   "category_id": null
+  },
+  "女装>>户外运动服>>田径服": {
+   "category_id": null
+  },
+  "女装>>户外运动服>>登山服": {
+   "category_id": null
+  },
+  "女装>>户外运动服>>赛车T恤": {
+   "category_id": null
+  },
+  "女装>>户外运动服>>赛车套装": {
+   "category_id": null
+  },
+  "女装>>户外运动服>>赛车服>>机车服": {
+   "category_id": null
+  },
+  "女装>>户外运动服>>赛车裤": {
+   "category_id": null
+  },
+  "女装>>户外运动服>>跑步T恤": {
+   "category_id": null
+  },
+  "女装>>户外运动服>>跑步外套": {
+   "category_id": null
+  },
+  "女装>>户外运动服>>跑步服套装": {
+   "category_id": null
+  },
+  "女装>>户外运动服>>跑步短裤": {
+   "category_id": null
+  },
+  "女装>>户外运动服>>跑步背心": {
+   "category_id": null
+  },
+  "女装>>户外运动服>>跑步长裤": {
+   "category_id": null
+  },
+  "女装>>户外运动服>>跑步马甲": {
+   "category_id": null
+  },
+  "女装>>户外运动服>>运动保暖内衣": {
+   "category_id": null
+  },
+  "女装>>户外运动服>>连体滑雪服": {
+   "category_id": null
+  },
+  "女装>>户外运动服>>连体骑行服": {
+   "category_id": null
+  },
+  "女装>>户外运动服>>速干T恤": {
+   "category_id": null
+  },
+  "女装>>户外运动服>>速干背心": {
+   "category_id": null
+  },
+  "女装>>户外运动服>>速干衣": {
+   "category_id": null
+  },
+  "女装>>户外运动服>>速干衣裤套装": {
+   "category_id": null
+  },
+  "女装>>户外运动服>>速干裤": {
+   "category_id": null
+  },
+  "女装>>户外运动服>>钓鱼服": {
+   "category_id": null
+  },
+  "女装>>户外运动服>>风壳": {
+   "category_id": null
+  },
+  "女装>>户外运动服>>马术装": {
+   "category_id": null
+  },
+  "女装>>户外运动服>>骑行内搭": {
+   "category_id": null
+  },
+  "女装>>户外运动服>>骑行内裤": {
+   "category_id": null
+  },
+  "女装>>户外运动服>>骑行套装": {
+   "category_id": null
+  },
+  "女装>>户外运动服>>骑行服": {
+   "category_id": null
+  },
+  "女装>>户外运动服>>骑行裤": {
+   "category_id": null
+  },
+  "女装>>户外运动服>>骑行马甲": {
+   "category_id": null
+  },
+  "女装>>武术搏击服>>剑道服": {
+   "category_id": null
+  },
+  "女装>>武术搏击服>>太极服": {
+   "category_id": null
+  },
+  "女装>>武术搏击服>>拳击服": {
+   "category_id": null
+  },
+  "女装>>武术搏击服>>摔跤服": {
+   "category_id": null
+  },
+  "女装>>武术搏击服>>柔道服": {
+   "category_id": null
+  },
+  "女装>>武术搏击服>>空手道服": {
+   "category_id": null
+  },
+  "女装>>武术搏击服>>跆拳道服": {
+   "category_id": null
+  },
+  "女装>>民族服装>>唐装": {
+   "category_id": null
+  },
+  "女装>>民族服装>>汉服上装": {
+   "category_id": null
+  },
+  "女装>>民族服装>>汉服半身裙": {
+   "category_id": null
+  },
+  "女装>>民族服装>>汉服套装": {
+   "category_id": null
+  },
+  "女装>>民族服装>>汉服裤装": {
+   "category_id": null
+  },
+  "女装>>民族服装>>汉服连衣裙": {
+   "category_id": null
+  },
+  "女装>>民族服装>>秀禾服": {
+   "category_id": null
+  },
+  "女装>>泳装>>分体泳衣": {
+   "category_id": null
+  },
+  "女装>>泳装>>比基尼": {
+   "category_id": null
+  },
+  "女装>>泳装>>沙滩裤": {
+   "category_id": null
+  },
+  "女装>>泳装>>泳衣套装": {
+   "category_id": null
+  },
+  "女装>>泳装>>泳装裙": {
+   "category_id": null
+  },
+  "女装>>泳装>>泳裤": {
+   "category_id": null
+  },
+  "女装>>泳装>>潜水服": {
+   "category_id": null
+  },
+  "女装>>泳装>>裹裙>>披纱": {
+   "category_id": null
+  },
+  "女装>>泳装>>连体泳装": {
+   "category_id": null
+  },
+  "女装>>泳装>>速干袍": {
+   "category_id": null
+  },
+  "女装>>球服>>乒乓球服": {
+   "category_id": null
+  },
+  "女装>>球服>>乒乓球服套装": {
+   "category_id": null
+  },
+  "女装>>球服>>其他球服": {
+   "category_id": null
+  },
+  "女装>>球服>>匹克球服": {
+   "category_id": null
+  },
+  "女装>>球服>>排球服": {
+   "category_id": null
+  },
+  "女装>>球服>>橄榄球下装": {
+   "category_id": null
+  },
+  "女装>>球服>>橄榄球套装": {
+   "category_id": null
+  },
+  "女装>>球服>>橄榄球服": {
+   "category_id": null
+  },
+  "女装>>球服>>篮球套装": {
+   "category_id": null
+  },
+  "女装>>球服>>篮球背心": {
+   "category_id": null
+  },
+  "女装>>球服>>篮球衣": {
+   "category_id": null
+  },
+  "女装>>球服>>篮球裤": {
+   "category_id": null
+  },
+  "女装>>球服>>网球套装": {
+   "category_id": null
+  },
+  "女装>>球服>>网球衣": {
+   "category_id": null
+  },
+  "女装>>球服>>网球裙": {
+   "category_id": null
+  },
+  "女装>>球服>>网球裤": {
+   "category_id": null
+  },
+  "女装>>球服>>羽毛球服": {
+   "category_id": null
+  },
+  "女装>>球服>>羽毛球服套装": {
+   "category_id": null
+  },
+  "女装>>球服>>羽毛球裙": {
+   "category_id": null
+  },
+  "女装>>球服>>羽毛球裤": {
+   "category_id": null
+  },
+  "女装>>球服>>足球套装": {
+   "category_id": null
+  },
+  "女装>>球服>>足球衣": {
+   "category_id": null
+  },
+  "女装>>球服>>足球裤": {
+   "category_id": null
+  },
+  "女装>>球服>>高尔夫球服": {
+   "category_id": null
+  },
+  "女装>>盲盒>>礼盒>>女装盲盒": {
+   "category_id": null
+  },
+  "女装>>盲盒>>礼盒>>女装礼盒": {
+   "category_id": null
+  },
+  "女装>>短裙>>休闲短裙": {
+   "category_id": null
+  },
+  "女装>>短裙>>屁帘": {
+   "category_id": null
+  },
+  "女装>>短裙>>工装短裙": {
+   "category_id": null
+  },
+  "女装>>短裙>>牛仔短裙": {
+   "category_id": null
+  },
+  "女装>>短裙>>皮短裙": {
+   "category_id": null
+  },
+  "女装>>短裤>>休闲短裤": {
+   "category_id": null
+  },
+  "女装>>短裤>>工装短裤": {
+   "category_id": null
+  },
+  "女装>>短裤>>牛仔短裤": {
+   "category_id": null
+  },
+  "女装>>舞蹈服>>傣族舞服": {
+   "category_id": null
+  },
+  "女装>>舞蹈服>>古典舞服": {
+   "category_id": null
+  },
+  "女装>>舞蹈服>>广场舞服": {
+   "category_id": null
+  },
+  "女装>>舞蹈服>>拉丁舞服": {
+   "category_id": null
+  },
+  "女装>>舞蹈服>>摩登舞上装": {
+   "category_id": null
+  },
+  "女装>>舞蹈服>>摩登舞下装": {
+   "category_id": null
+  },
+  "女装>>舞蹈服>>摩登舞套装": {
+   "category_id": null
+  },
+  "女装>>舞蹈服>>新疆舞服": {
+   "category_id": null
+  },
+  "女装>>舞蹈服>>朝鲜舞服": {
+   "category_id": null
+  },
+  "女装>>舞蹈服>>爵士舞服装": {
+   "category_id": null
+  },
+  "女装>>舞蹈服>>现代舞服": {
+   "category_id": null
+  },
+  "女装>>舞蹈服>>秧歌服": {
+   "category_id": null
+  },
+  "女装>>舞蹈服>>肚皮舞服": {
+   "category_id": null
+  },
+  "女装>>舞蹈服>>芭蕾舞服": {
+   "category_id": null
+  },
+  "女装>>舞蹈服>>草裙舞服": {
+   "category_id": null
+  },
+  "女装>>舞蹈服>>藏族舞服": {
+   "category_id": null
+  },
+  "女装>>舞蹈服>>踢踏舞服": {
+   "category_id": null
+  },
+  "女装>>舞蹈服>>钢管舞服": {
+   "category_id": null
+  },
+  "女装>>连衣裙>>吊带连衣裙": {
+   "category_id": null
+  },
+  "女装>>连衣裙>>无袖连衣裙": {
+   "category_id": null
+  },
+  "女装>>连衣裙>>短袖连衣裙": {
+   "category_id": null
+  },
+  "女装>>连衣裙>>长袖连衣裙": {
+   "category_id": null
+  },
+  "女装>>长裙>>休闲长裙": {
+   "category_id": null
+  },
+  "女装>>长裙>>牛仔长裙": {
+   "category_id": null
+  },
+  "女装>>长裙>>皮长裙": {
+   "category_id": null
+  },
+  "女装>>长裙>>针织长裙": {
+   "category_id": null
+  },
+  "女装>>长裤>>休闲裤": {
+   "category_id": null
+  },
+  "女装>>长裤>>冲锋裤": {
+   "category_id": null
+  },
+  "女装>>长裤>>工装裤": {
+   "category_id": null
+  },
+  "女装>>长裤>>打底裤": {
+   "category_id": null
+  },
+  "女装>>长裤>>棉裤": {
+   "category_id": null
+  },
+  "女装>>长裤>>牛仔裤": {
+   "category_id": null
+  },
+  "女装>>长裤>>皮裤": {
+   "category_id": null
+  },
+  "女装>>长裤>>羽绒裤": {
+   "category_id": null
+  },
+  "女装>>长裤>>背带裤": {
+   "category_id": null
+  },
+  "女装>>长裤>>西装裤": {
+   "category_id": null
+  },
+  "女装>>长裤>>软壳裤": {
+   "category_id": null
+  },
+  "女装>>长裤>>连体裤": {
+   "category_id": null
+  },
+  "女装>>长裤>>针织运动裤": {
+   "category_id": null
+  },
+  "女装>>长裤>>防晒裤": {
+   "category_id": null
+  },
+  "服装>>三坑>>COSPLAY>>COSPLAY": {
+   "category_id": null
+  },
+  "服装>>三坑>>COSPLAY>>COS甲胄": {
+   "category_id": null
+  },
+  "服装>>三坑>>COSPLAY>>制服": {
+   "category_id": null
+  },
+  "服装>>三坑>>COSPLAY>>汉服": {
+   "category_id": null
+  },
+  "服装>>三坑>>COSPLAY>>福瑞兽装": {
+   "category_id": null
+  },
+  "服装>>上衣>>Polo衫": {
+   "category_id": 10
+  },
+  "服装>>上衣>>T恤": {
+   "category_id": 4
+  },
+  "服装>>上衣>>卫衣": {
+   "category_id": 1002848
+  },
+  "服装>>上衣>>吊带": {
+   "category_id": null
+  },
+  "服装>>上衣>>毛衣": {
+   "category_id": 13
+  },
+  "服装>>上衣>>牛仔衬衫": {
+   "category_id": null
+  },
+  "服装>>上衣>>电竞服": {
+   "category_id": null
+  },
+  "服装>>上衣>>羊绒开衫": {
+   "category_id": null
+  },
+  "服装>>上衣>>羊绒背心": {
+   "category_id": null
+  },
+  "服装>>上衣>>羊绒衫": {
+   "category_id": null
+  },
+  "服装>>上衣>>背心": {
+   "category_id": null
+  },
+  "服装>>上衣>>衬衫": {
+   "category_id": 5
+  },
+  "服装>>上衣>>针织衫": {
+   "category_id": 14
+  },
+  "服装>>中老年男装>>中老年上装": {
+   "category_id": null
+  },
+  "服装>>中老年男装>>中老年下装": {
+   "category_id": null
+  },
+  "服装>>中老年男装>>中老年套装": {
+   "category_id": null
+  },
+  "服装>>健身服>>体操服": {
+   "category_id": null
+  },
+  "服装>>健身服>>健美操服": {
+   "category_id": null
+  },
+  "服装>>健身服>>健身套装": {
+   "category_id": null
+  },
+  "服装>>健身服>>健身衣": {
+   "category_id": null
+  },
+  "服装>>健身服>>啦啦队服": {
+   "category_id": null
+  },
+  "服装>>健身服>>瑜伽T恤": {
+   "category_id": null
+  },
+  "服装>>健身服>>瑜伽短裤": {
+   "category_id": null
+  },
+  "服装>>健身服>>瑜伽长裤": {
+   "category_id": null
+  },
+  "服装>>健身服>>训练防护服": {
+   "category_id": null
+  },
+  "服装>>健身服>>运动短裤": {
+   "category_id": null
+  },
+  "服装>>健身服>>运动长裤": {
+   "category_id": null
+  },
+  "服装>>健身服>>鲨鱼裤": {
+   "category_id": 1009790
+  },
+  "服装>>军迷作训服>>军迷T恤": {
+   "category_id": null
+  },
+  "服装>>军迷作训服>>军迷吉利服": {
+   "category_id": null
+  },
+  "服装>>军迷作训服>>军迷大衣": {
+   "category_id": null
+  },
+  "服装>>军迷作训服>>军迷夹克": {
+   "category_id": null
+  },
+  "服装>>军迷作训服>>军迷工装裤": {
+   "category_id": null
+  },
+  "服装>>军迷作训服>>军迷服套装": {
+   "category_id": null
+  },
+  "服装>>军迷作训服>>军迷羽绒服": {
+   "category_id": null
+  },
+  "服装>>军迷作训服>>军迷背心": {
+   "category_id": null
+  },
+  "服装>>加价购>>刻字服务": {
+   "category_id": null
+  },
+  "服装>>加价购>>服装周边": {
+   "category_id": null
+  },
+  "服装>>加价购>>服装定制": {
+   "category_id": null
+  },
+  "服装>>外套>>中山装": {
+   "category_id": 1009798
+  },
+  "服装>>外套>>冲锋衣": {
+   "category_id": null
+  },
+  "服装>>外套>>含羽绒外套": {
+   "category_id": null
+  },
+  "服装>>外套>>大衣": {
+   "category_id": 8
+  },
+  "服装>>外套>>夹克": {
+   "category_id": 7
+  },
+  "服装>>外套>>斗篷披风": {
+   "category_id": null
+  },
+  "服装>>外套>>棉服": {
+   "category_id": 9
+  },
+  "服装>>外套>>棒球服": {
+   "category_id": 285
+  },
+  "服装>>外套>>派克服": {
+   "category_id": null
+  },
+  "服装>>外套>>牛仔外套": {
+   "category_id": 11
+  },
+  "服装>>外套>>皮肤衣": {
+   "category_id": 1009795
+  },
+  "服装>>外套>>皮草": {
+   "category_id": null
+  },
+  "服装>>外套>>皮衣": {
+   "category_id": null
+  },
+  "服装>>外套>>绒感外套": {
+   "category_id": null
+  },
+  "服装>>外套>>羽绒服": {
+   "category_id": 12
+  },
+  "服装>>外套>>羽绒马甲": {
+   "category_id": 1009797
+  },
+  "服装>>外套>>西装": {
+   "category_id": null
+  },
+  "服装>>外套>>软壳衣": {
+   "category_id": 1009796
+  },
+  "服装>>外套>>防晒服": {
+   "category_id": 1001276
+  },
+  "服装>>外套>>风衣": {
+   "category_id": null
+  },
+  "服装>>外套>>马甲": {
+   "category_id": 272
+  },
+  "服装>>大码男装>>大码上装": {
+   "category_id": null
+  },
+  "服装>>大码男装>>大码下装": {
+   "category_id": null
+  },
+  "服装>>大码男装>>大码套装": {
+   "category_id": null
+  },
+  "服装>>户外运动服>>军迷服": {
+   "category_id": null
+  },
+  "服装>>户外运动服>>冲浪服": {
+   "category_id": null
+  },
+  "服装>>户外运动服>>冲浪防寒衣": {
+   "category_id": null
+  },
+  "服装>>户外运动服>>抓绒衣": {
+   "category_id": 1017763
+  },
+  "服装>>户外运动服>>抓绒裤": {
+   "category_id": 1017762
+  },
+  "服装>>户外运动服>>滑冰服": {
+   "category_id": null
+  },
+  "服装>>户外运动服>>滑雪衣": {
+   "category_id": null
+  },
+  "服装>>户外运动服>>滑雪衣套装": {
+   "category_id": null
+  },
+  "服装>>户外运动服>>滑雪裤": {
+   "category_id": null
+  },
+  "服装>>户外运动服>>田径服": {
+   "category_id": null
+  },
+  "服装>>户外运动服>>登山服": {
+   "category_id": null
+  },
+  "服装>>户外运动服>>赛车T恤": {
+   "category_id": null
+  },
+  "服装>>户外运动服>>赛车套装": {
+   "category_id": null
+  },
+  "服装>>户外运动服>>赛车服>>机车服": {
+   "category_id": null
+  },
+  "服装>>户外运动服>>赛车裤": {
+   "category_id": null
+  },
+  "服装>>户外运动服>>跑步T恤": {
+   "category_id": 1017674
+  },
+  "服装>>户外运动服>>跑步外套": {
+   "category_id": 1017788
+  },
+  "服装>>户外运动服>>跑步服套装": {
+   "category_id": 1017680
+  },
+  "服装>>户外运动服>>跑步短裤": {
+   "category_id": 1017666
+  },
+  "服装>>户外运动服>>跑步背心": {
+   "category_id": 1017672
+  },
+  "服装>>户外运动服>>跑步长裤": {
+   "category_id": 1017667
+  },
+  "服装>>户外运动服>>跑步马甲": {
+   "category_id": 1017670
+  },
+  "服装>>户外运动服>>运动保暖内衣": {
+   "category_id": null
+  },
+  "服装>>户外运动服>>连体滑雪服": {
+   "category_id": null
+  },
+  "服装>>户外运动服>>连体骑行服": {
+   "category_id": 1009783
+  },
+  "服装>>户外运动服>>速干T恤": {
+   "category_id": 1017758
+  },
+  "服装>>户外运动服>>速干背心": {
+   "category_id": 1017759
+  },
+  "服装>>户外运动服>>速干衣": {
+   "category_id": 1017761
+  },
+  "服装>>户外运动服>>速干衣裤套装": {
+   "category_id": 1017757
+  },
+  "服装>>户外运动服>>速干裤": {
+   "category_id": 1017760
+  },
+  "服装>>户外运动服>>钓鱼服": {
+   "category_id": null
+  },
+  "服装>>户外运动服>>风壳": {
+   "category_id": 1017756
+  },
+  "服装>>户外运动服>>马术装": {
+   "category_id": null
+  },
+  "服装>>户外运动服>>骑行内搭": {
+   "category_id": 1009785
+  },
+  "服装>>户外运动服>>骑行内裤": {
+   "category_id": 1009786
+  },
+  "服装>>户外运动服>>骑行外套": {
+   "category_id": 1009787
+  },
+  "服装>>户外运动服>>骑行套装": {
+   "category_id": null
+  },
+  "服装>>户外运动服>>骑行服": {
+   "category_id": null
+  },
+  "服装>>户外运动服>>骑行裤": {
+   "category_id": null
+  },
+  "服装>>户外运动服>>骑行马甲": {
+   "category_id": 1009784
+  },
+  "服装>>服装套装>>休闲运动套装": {
+   "category_id": 1002774
+  },
+  "服装>>服装套装>>冲锋衣裤套装": {
+   "category_id": 1009780
+  },
+  "服装>>服装套装>>卫衣套装": {
+   "category_id": 1002775
+  },
+  "服装>>服装套装>>情侣套装": {
+   "category_id": null
+  },
+  "服装>>服装套装>>衬衫套装": {
+   "category_id": null
+  },
+  "服装>>服装套装>>西装套装": {
+   "category_id": null
+  },
+  "服装>>服装套装>>软壳衣裤套装": {
+   "category_id": null
+  },
+  "服装>>武术搏击服>>剑道服": {
+   "category_id": null
+  },
+  "服装>>武术搏击服>>太极服": {
+   "category_id": 1013585
+  },
+  "服装>>武术搏击服>>拳击服": {
+   "category_id": 1013720
+  },
+  "服装>>武术搏击服>>摔跤服": {
+   "category_id": null
+  },
+  "服装>>武术搏击服>>柔道服": {
+   "category_id": null
+  },
+  "服装>>武术搏击服>>空手道服": {
+   "category_id": null
+  },
+  "服装>>武术搏击服>>跆拳道服": {
+   "category_id": 1013586
+  },
+  "服装>>民族服装>>其他民族服装": {
+   "category_id": null
+  },
+  "服装>>民族服装>>唐装": {
+   "category_id": 1013707
+  },
+  "服装>>民族服装>>汉服上装": {
+   "category_id": null
+  },
+  "服装>>民族服装>>汉服套装": {
+   "category_id": null
+  },
+  "服装>>民族服装>>汉服裤装": {
+   "category_id": null
+  },
+  "服装>>民族服装>>秀禾服": {
+   "category_id": null
+  },
+  "服装>>泳装>>沙滩裤": {
+   "category_id": null
+  },
+  "服装>>泳装>>泳衣套装": {
+   "category_id": null
+  },
+  "服装>>泳装>>泳裤": {
+   "category_id": null
+  },
+  "服装>>泳装>>潜水服": {
+   "category_id": null
+  },
+  "服装>>泳装>>男士泳装": {
+   "category_id": null
+  },
+  "服装>>泳装>>速干袍": {
+   "category_id": null
+  },
+  "服装>>球服>>乒乓球服": {
+   "category_id": null
+  },
+  "服装>>球服>>乒乓球服套装": {
+   "category_id": 1017754
+  },
+  "服装>>球服>>其他球服": {
+   "category_id": null
+  },
+  "服装>>球服>>匹克球服": {
+   "category_id": 1009794
+  },
+  "服装>>球服>>排球服": {
+   "category_id": null
+  },
+  "服装>>球服>>橄榄球下装": {
+   "category_id": null
+  },
+  "服装>>球服>>橄榄球套装": {
+   "category_id": null
+  },
+  "服装>>球服>>橄榄球服": {
+   "category_id": null
+  },
+  "服装>>球服>>篮球套装": {
+   "category_id": null
+  },
+  "服装>>球服>>篮球背心": {
+   "category_id": null
+  },
+  "服装>>球服>>篮球衣": {
+   "category_id": null
+  },
+  "服装>>球服>>篮球裤": {
+   "category_id": null
+  },
+  "服装>>球服>>网球下装": {
+   "category_id": null
+  },
+  "服装>>球服>>网球套装": {
+   "category_id": null
+  },
+  "服装>>球服>>网球衣": {
+   "category_id": null
+  },
+  "服装>>球服>>羽毛球服": {
+   "category_id": null
+  },
+  "服装>>球服>>羽毛球服套装": {
+   "category_id": 1017764
+  },
+  "服装>>球服>>羽毛球裤": {
+   "category_id": 1017765
+  },
+  "服装>>球服>>足球套装": {
+   "category_id": null
+  },
+  "服装>>球服>>足球衣": {
+   "category_id": null
+  },
+  "服装>>球服>>足球裤": {
+   "category_id": null
+  },
+  "服装>>球服>>高尔夫球服": {
+   "category_id": null
+  },
+  "服装>>盲盒>>礼盒>>服装盲盒": {
+   "category_id": null
+  },
+  "服装>>盲盒>>礼盒>>服装礼盒": {
+   "category_id": null
+  },
+  "服装>>短裤>>休闲短裤": {
+   "category_id": 1002791
+  },
+  "服装>>短裤>>工装短裤": {
+   "category_id": 1002793
+  },
+  "服装>>短裤>>牛仔短裤": {
+   "category_id": 1002792
+  },
+  "服装>>舞蹈服>>傣族舞服": {
+   "category_id": null
+  },
+  "服装>>舞蹈服>>古典舞服": {
+   "category_id": null
+  },
+  "服装>>舞蹈服>>广场舞服": {
+   "category_id": null
+  },
+  "服装>>舞蹈服>>拉丁舞服": {
+   "category_id": null
+  },
+  "服装>>舞蹈服>>新疆舞服": {
+   "category_id": null
+  },
+  "服装>>舞蹈服>>朝鲜舞服": {
+   "category_id": null
+  },
+  "服装>>舞蹈服>>爵士舞服装": {
+   "category_id": null
+  },
+  "服装>>舞蹈服>>秧歌服": {
+   "category_id": null
+  },
+  "服装>>舞蹈服>>肚皮舞服": {
+   "category_id": null
+  },
+  "服装>>舞蹈服>>芭蕾舞服": {
+   "category_id": null
+  },
+  "服装>>舞蹈服>>草裙舞服": {
+   "category_id": null
+  },
+  "服装>>舞蹈服>>藏族舞服": {
+   "category_id": null
+  },
+  "服装>>舞蹈服>>踢踏舞服": {
+   "category_id": null
+  },
+  "服装>>裙子>>半身裙": {
+   "category_id": null
+  },
+  "服装>>长裤>>休闲裤": {
+   "category_id": 28
+  },
+  "服装>>长裤>>冲锋裤": {
+   "category_id": null
+  },
+  "服装>>长裤>>工装裤": {
+   "category_id": 1002769
+  },
+  "服装>>长裤>>棉裤": {
+   "category_id": 1009779
+  },
+  "服装>>长裤>>牛仔裤": {
+   "category_id": 23
+  },
+  "服装>>长裤>>皮裤": {
+   "category_id": null
+  },
+  "服装>>长裤>>羽绒裤": {
+   "category_id": null
+  },
+  "服装>>长裤>>背带裤": {
+   "category_id": null
+  },
+  "服装>>长裤>>西装裤": {
+   "category_id": 1002770
+  },
+  "服装>>长裤>>软壳裤": {
+   "category_id": 1017675
+  },
+  "服装>>长裤>>连体裤": {
+   "category_id": null
+  },
+  "服装>>长裤>>针织运动裤": {
+   "category_id": null
+  },
+  "服装>>长裤>>防晒裤": {
+   "category_id": null
+  },
+  "服装": {
+   "category_id": 2
+  },
+  "服装>>上衣": {
+   "category_id": 3
+  },
+  "服装>>盲盒/礼盒": {
+   "category_id": 1001033
+  },
+  "服装>>盲盒/礼盒>>服装盲盒": {
+   "category_id": 1001034
+  },
+  "服装>>服装套装": {
+   "category_id": 1001258
+  },
+  "服装>>健身服": {
+   "category_id": 1001262
+  },
+  "服装>>外套": {
+   "category_id": 1002606
+  },
+  "服装>>球服": {
+   "category_id": 1002618
+  },
+  "服装>>户外运动服": {
+   "category_id": 1002628
+  },
+  "服装>>长裤": {
+   "category_id": 1002767
+  },
+  "服装>>短裤": {
+   "category_id": 1002789
+  },
+  "服装>>民族服装": {
+   "category_id": 1009697
+  },
+  "服装>>武术搏击服": {
+   "category_id": 1009698
+  }
+ },
+ "brands": {
+  "帕丁顿熊（界一）": {
+   "brand_id": 1048353
+  }
+ }
+}

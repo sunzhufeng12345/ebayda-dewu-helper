@@ -7,3 +7,11 @@ __pycache__/
 *.log
 .DS_Store
 .worktrees/
+.env
+worker.env
+worker_state/
+.ssh_exec.exp
+.scp.exp
+dewu_api/tokens.json
+dewu_api/last_*.json
+dewu_api/sandbox_resp.json

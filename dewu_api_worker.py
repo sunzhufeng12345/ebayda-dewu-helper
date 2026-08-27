@@ -33,7 +33,6 @@
     BPMS_BASE_URL      必填，如 https://www.ebayda.com
     BPMS_DEVICE_TOKEN  必填，店铺绑定后由 bind_shops.py 写入 worker.env
     BPMS_WORKER_TOKEN  必填，与 BPMS 后端 DEWU_WORKER_TOKEN 一致
-    DEWU_BRAND_ID      可选，品牌 id（默认 1048353，2026-08 实查）
     DEWU_ARTICLE_SUFFIX 可选，货号追加后缀（测试去重用）
     WORKER_POLL_INTERVAL 可选，空闲轮询秒数（默认 10）
     WORKER_STATE_DIR   可选，下载/解压/报文缓存目录（默认 worker_state/）
@@ -114,7 +113,6 @@ def _truncate(message: str, limit: int = MAX_MESSAGE_RUNES) -> str:
 @dataclass(frozen=True)
 class WorkerContext:
     bpms: "BpmsApi"
-    brand_id: int
     article_suffix: str
     poll_interval: int
     state_dir: Path
@@ -271,6 +269,66 @@ def _build_client(ctx: WorkerContext, shop_id: str) -> DewuClient:
     return client
 
 
+# 品牌按店铺隔离（2026-08-27 生产实证）：query_category 只返回当前店铺授权品牌的
+# 类目树，跨品牌查询静默返回空。一个 worker 服务多店铺时，品牌 id 必须逐店铺解析，
+# 以店铺在售商品池的品牌分布为权威来源，结果缓存进 state 目录避免逐任务多一次调用。
+_BRAND_CACHE_NAME = "brand_cache.json"
+
+
+def _load_brand_cache(state_dir: Path) -> dict[str, dict[str, Any]]:
+    path = state_dir / _BRAND_CACHE_NAME
+    if not path.is_file():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _save_brand_cache(state_dir: Path, cache: dict[str, dict[str, Any]]) -> None:
+    (state_dir / _BRAND_CACHE_NAME).write_text(
+        json.dumps(cache, ensure_ascii=False, indent=1), encoding="utf-8"
+    )
+
+
+def _drop_brand_cache(state_dir: Path, shop_id: str) -> None:
+    cache = _load_brand_cache(state_dir)
+    if cache.pop(str(shop_id), None) is not None:
+        _save_brand_cache(state_dir, cache)
+
+
+def _resolve_shop_brand(ctx: WorkerContext, client: DewuClient, shop_id: str) -> tuple[int, str]:
+    """按店铺解析品牌 id：取在售商品池的唯一品牌，缓存后复用。
+
+    在售池为空或含多个品牌时无法自动选择，抛错并给出可操作的提示。
+    """
+    cached = _load_brand_cache(ctx.state_dir).get(str(shop_id))
+    if isinstance(cached, dict) and cached.get("brand_id"):
+        return int(cached["brand_id"]), str(cached.get("brand_name") or "")
+
+    result = client.request("/dop/api/v1/product_pool/list", {"page": 1, "page_size": 50})
+    items = (result.get("data") or {}).get("list") or []
+    brands: dict[int, str] = {}
+    for entry in items:
+        brand_id = entry.get("brand_id")
+        if brand_id:
+            brands[int(brand_id)] = str(entry.get("brand_name") or "")
+    if len(brands) == 1:
+        brand_id, brand_name = next(iter(brands.items()))
+        cache = _load_brand_cache(ctx.state_dir)
+        cache[str(shop_id)] = {"brand_id": brand_id, "brand_name": brand_name}
+        _save_brand_cache(ctx.state_dir, cache)
+        _log(f"店铺 {shop_id} 品牌解析：{brand_name}({brand_id})")
+        return brand_id, brand_name
+    if not brands:
+        raise RuntimeError(
+            f"店铺 {shop_id} 在售商品池为空，无法自动确定品牌；请先在得物后台上架商品后重试"
+        )
+    detail = "、".join(f"{name}({bid})" for bid, name in brands.items())
+    raise RuntimeError(f"店铺 {shop_id} 在售商品含多个品牌：{detail}，无法自动选择")
+
+
 def _resolve_guidance_files(product) -> tuple[Any, Any]:
     """尺码推荐/试穿报告：按商品首尾尺码在 配置文件/ 下匹配 Excel。"""
     size_recommend = None
@@ -367,11 +425,22 @@ def process_item(ctx: WorkerContext, item: dict[str, Any]) -> bool:
 
         client = _build_client(ctx, shop_id)
 
+        brand_id, _brand_name = _resolve_shop_brand(ctx, client, shop_id)
         mappings = load_mappings()
-        mappings["brands"][product.brand] = {"brand_id": ctx.brand_id}
         category_path = config_loader.resolve_category(cfg, product)
         category_key = ">>".join(category_path)
-        flat = sync_category_mappings(client, ctx.brand_id)
+        flat = sync_category_mappings(client, brand_id)
+        if not flat:
+            # 缓存的品牌可能因平台侧授权变更而失效：清缓存后重解析一次再查
+            _log(f"⚠ 品牌 {brand_id} 类目树为空，清缓存重解析")
+            _drop_brand_cache(ctx.state_dir, shop_id)
+            brand_id, _brand_name = _resolve_shop_brand(ctx, client, shop_id)
+            flat = sync_category_mappings(client, brand_id)
+        mappings["brands"][product.brand] = {"brand_id": brand_id}
+        if not flat:
+            raise RuntimeError(
+                f"品牌 {brand_id} 类目树为空：品牌可能不属于店铺 {shop_id} 或平台侧授权已变更"
+            )
         if category_key not in flat:
             nearby = [p for p in flat if p.split(">>")[-1] == category_key.split(">>")[-1]][:5]
             raise RuntimeError(f"类目「{category_key}」不在品牌类目树中，相近路径：{nearby}")
@@ -473,10 +542,6 @@ def load_worker_config() -> WorkerContext:
     if missing:
         raise WorkerConfigError(f"缺少配置 {'、'.join(missing)}（环境变量或 worker.env）")
     try:
-        brand_id = int(get("DEWU_BRAND_ID", "1048353"))
-    except ValueError as exc:
-        raise WorkerConfigError(f"DEWU_BRAND_ID 非法：{exc}") from exc
-    try:
         poll_interval = int(get("WORKER_POLL_INTERVAL", "10"))
     except ValueError as exc:
         raise WorkerConfigError(f"WORKER_POLL_INTERVAL 非法：{exc}") from exc
@@ -484,7 +549,6 @@ def load_worker_config() -> WorkerContext:
     state_dir.mkdir(parents=True, exist_ok=True)
     return WorkerContext(
         bpms=BpmsApi(base_url, device_token, worker_token),
-        brand_id=brand_id,
         article_suffix=get("DEWU_ARTICLE_SUFFIX", ""),
         poll_interval=poll_interval,
         state_dir=state_dir,
@@ -498,7 +562,7 @@ def main() -> int:
         _log(f"配置错误：{exc}")
         return 2
     _log(
-        f"Worker 启动：BPMS={ctx.bpms.base} 品牌={ctx.brand_id} "
+        f"Worker 启动：BPMS={ctx.bpms.base} 品牌按店铺自动解析 "
         f"轮询={ctx.poll_interval}s 状态目录={ctx.state_dir}"
     )
     while True:

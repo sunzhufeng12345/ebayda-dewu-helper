@@ -274,17 +274,39 @@ def build_sku_list(product) -> list[dict]:
 # ---------------------------------------------------------------------------
 # 尺码表（Excel 尺码表 sheet → size_table 内联数组）
 # ---------------------------------------------------------------------------
+def _strip_cm_suffix(name: str) -> str:
+    """测量名去 (cm)/(CM) 后缀：官方 UI 建草稿的 sizeTable 用裸名（衣长/胸围/袖长）。"""
+    return re.sub(r"[(（]\s*[cC][mM]\s*[)）]\s*$", "", name).strip()
+
+
 def build_size_table(size_chart: Mapping[str, Mapping[str, str]]) -> list[dict]:
     """size_chart: {尺码: {测量名: 值}}（config_loader.Config.size_chart）。
 
-    结构：[{size_key: 尺码名, size_value: JSON字符串, type: 1}]
-    2026-08-25 生产实证：size_value 必须是 JSON 序列化后的字符串，
-    传数组会报 [407] size_value 字段类型错误。
+    列式结构（2026-08-27 抓 stark draftDetail 旧草稿实证，推翻 8/25 的 JSON 字符串结论）：
+        [{size_key: "尺码", size_value: "M,L,XL", remark_sort: 0, type: 1},
+         {size_key: "衣长", size_value: "64,66,68", remark_sort: 0, type: 2}, ...]
+    得物前端按 size_value.split(",") 渲染：首行 type=1 是尺码名序列，
+    其后每个测量参数一行 type=2，值按尺码顺序逗号分隔。
+    旧实现把 name/value JSON 串当 size_value 传，API 虽接受但后台渲染成 JSON 碎片。
     """
-    table: list[dict] = []
-    for size, measures in size_chart.items():
-        cells = [{"name": name, "value": val} for name, val in measures.items()]
-        table.append({"size_key": size, "size_value": json.dumps(cells, ensure_ascii=False), "type": 1})
+    sizes = list(size_chart.keys())
+    if not sizes:
+        return []
+    measure_names: list[str] = []
+    for measures in size_chart.values():
+        for name in measures:
+            bare = _strip_cm_suffix(str(name))
+            if bare and bare not in measure_names:
+                measure_names.append(bare)
+    table: list[dict] = [
+        {"size_key": "尺码", "size_value": ",".join(str(s) for s in sizes), "remark_sort": 0, "type": 1}
+    ]
+    for name in measure_names:
+        values = []
+        for measures in size_chart.values():
+            hit = next((v for k, v in measures.items() if _strip_cm_suffix(str(k)) == name), "")
+            values.append(str(hit) if hit not in (None, "") else "")
+        table.append({"size_key": name, "size_value": ",".join(values), "remark_sort": 0, "type": 2})
     return table
 
 
